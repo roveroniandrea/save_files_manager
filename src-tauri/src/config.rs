@@ -49,6 +49,8 @@ pub struct Settings {
     /// Also suggest Ludusavi paths tagged `config` (not only `save`).
     pub include_config: bool,
     pub theme: Theme,
+    /// UI language. `System` follows the OS locale (English if unsupported).
+    pub language: Language,
 }
 
 impl Default for Settings {
@@ -58,6 +60,7 @@ impl Default for Settings {
             backup_limit: DEFAULT_BACKUP_LIMIT,
             include_config: false,
             theme: Theme::System,
+            language: Language::System,
         }
     }
 }
@@ -68,6 +71,15 @@ pub enum Theme {
     System,
     Light,
     Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+    #[default]
+    System,
+    En,
+    It,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -425,6 +437,7 @@ mod tests {
         let value = serde_json::to_value(sample()).unwrap();
         assert_eq!(value["version"], 1);
         assert_eq!(value["settings"]["theme"], "system");
+        assert_eq!(value["settings"]["language"], "system");
         assert_eq!(value["games"][0]["source"]["kind"], "steam");
         assert_eq!(value["games"][0]["source"]["appid"], 367520);
         assert_eq!(value["games"][1]["source"]["kind"], "manual");

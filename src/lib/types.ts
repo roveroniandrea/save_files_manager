@@ -5,12 +5,14 @@ export type Uuid = string;
 export type Timestamp = string;
 
 export type Theme = "system" | "light" | "dark";
+export type Language = "system" | "en" | "it";
 
 export interface Settings {
   storage_root: string | null;
   backup_limit: number;
   include_config: boolean;
   theme: Theme;
+  language: Language;
 }
 
 export type GameSource =

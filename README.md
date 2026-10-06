@@ -3,7 +3,7 @@
 A lightweight Windows app to keep **separate save profiles per game** for games that only support a single save.
 Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game's save folder(s) for you, remembering which profile is active.
 
-> Status: feature-complete for v1 (English UI). Italian translation is the next milestone. See `docs/PROGRESS.md`, and `KNOWN_BUGS.md` for known issues and limitations.
+> Status: feature-complete for v1 (English and Italian UI). See `docs/PROGRESS.md`, and `KNOWN_BUGS.md` for known issues and limitations.
 
 ## Features
 - **Steam games** are discovered automatically (all libraries); any other game can be added by hand (exe, name, icon, save folders).
@@ -13,7 +13,7 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 - **Play** button: switch to the chosen profile and start the game (Steam games through Steam).
 - **Backups** list per game with one-click restore.
 - **Steam Cloud warning** for games whose saves Steam Cloud syncs (it could overwrite swapped saves).
-- Light/dark theme; multilingual UI (English now, Italian planned).
+- Light/dark theme; English or Italian UI (follows Windows by default, changeable in Settings).
 
 ## Install
 Run `Save Files Manager_<version>_x64-setup.exe` (built with `npm run tauri build`, see below). It installs for the current user only (no administrator rights needed) and requires the Microsoft Edge WebView2 runtime, which Windows 10/11 already include (the installer downloads it if missing).

@@ -1,10 +1,21 @@
 import { en, type MessageKey, type Messages } from "./en";
+import { it } from "./it";
 
-export type Locale = "en";
+export type Locale = "en" | "it";
+/** The language setting: a locale, or "system" (the OS language). */
+export type LanguageSetting = Locale | "system";
 
-const catalogs: Record<Locale, Messages> = { en };
+const catalogs: Record<Locale, Messages> = { en, it };
 
-let locale = $state<Locale>("en");
+/** The OS/WebView language if supported, otherwise English. */
+function systemLocale(): Locale {
+  const lang = (typeof navigator === "undefined" ? "" : navigator.language).toLowerCase();
+  const base = lang.split("-")[0];
+  return base in catalogs ? (base as Locale) : "en";
+}
+
+// Until the config is loaded (and if it cannot be), follow the system language.
+let locale = $state<Locale>(systemLocale());
 
 export function getLocale(): Locale {
   return locale;
@@ -12,6 +23,12 @@ export function getLocale(): Locale {
 
 export function setLocale(next: Locale) {
   locale = next;
+  if (typeof document !== "undefined") document.documentElement.lang = next;
+}
+
+/** Applies the language setting ("system" resolves to the OS language). */
+export function applyLanguage(setting: LanguageSetting) {
+  setLocale(setting === "system" ? systemLocale() : setting);
 }
 
 type Params = Record<string, string | number>;

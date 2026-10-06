@@ -13,7 +13,7 @@
   import { formatDate } from "$lib/format";
   import { t, tn } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import type { ManifestStatus, Settings, Theme } from "$lib/types";
+  import type { Language, ManifestStatus, Settings, Theme } from "$lib/types";
 
   let manifest = $state<ManifestStatus | null>(null);
   let checking = $state(false);
@@ -58,6 +58,7 @@
   }
 
   const themes: Theme[] = ["system", "light", "dark"];
+  const languages: Language[] = ["system", "en", "it"];
   const limits = [1, 2, 3, 5, 10, 20, 50];
 </script>
 
@@ -70,6 +71,18 @@
     <select value={settings.theme} onchange={(e) => save({ theme: e.currentTarget.value as Theme })} disabled={app.busy}>
       {#each themes as theme (theme)}
         <option value={theme}>{t(`settings.theme.${theme}`)}</option>
+      {/each}
+    </select>
+  </label>
+  <label>
+    {t("settings.language")}
+    <select
+      value={settings.language}
+      onchange={(e) => save({ language: e.currentTarget.value as Language })}
+      disabled={app.busy}
+    >
+      {#each languages as language (language)}
+        <option value={language}>{t(`settings.language.${language}`)}</option>
       {/each}
     </select>
   </label>

@@ -1,5 +1,6 @@
 // Global UI state: the config snapshot, selection, busy flag and toasts.
 import { errorDetail, errorMessage, getConfig } from "./api";
+import { applyLanguage } from "./i18n";
 import type { Config, Game, Uuid } from "./types";
 
 export interface Toast {
@@ -37,6 +38,7 @@ class AppState {
     this.config = config;
     // Theme override for app.css ("system" follows the OS).
     document.documentElement.dataset.theme = config.settings.theme;
+    applyLanguage(config.settings.language);
     if (!config.games.some((g) => g.id === this.selectedId)) {
       this.selectedId = config.games[0]?.id ?? null;
     }

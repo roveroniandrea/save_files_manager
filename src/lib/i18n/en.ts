@@ -53,6 +53,11 @@ export const en = {
   "settings.theme.system": "Same as Windows",
   "settings.theme.light": "Light",
   "settings.theme.dark": "Dark",
+  "settings.language": "Language",
+  "settings.language.system": "Same as Windows",
+  // Language names are shown in their own language in every catalog.
+  "settings.language.en": "English",
+  "settings.language.it": "Italiano",
   "settings.backups": "Backups",
   "settings.backupLimit": "Backups to keep per game",
   "settings.backupLimitHint": "Older backups are deleted automatically. Each game can override this (Edit game).",

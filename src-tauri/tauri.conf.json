@@ -42,7 +42,9 @@
     "longDescription": "Keeps separate save profiles per game (e.g. one per person) and swaps the game's save folders to the selected profile, with automatic backups and rollback.",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "languages": ["English", "Italian"],
+        "displayLanguageSelector": true
       }
     }
   }
