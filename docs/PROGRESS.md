@@ -17,12 +17,12 @@ Milestones come from `docs/SPEC.md`.
 
 ## Environment notes
 - Node 22 / npm 10 installed. `npm run check` passes.
-- Rust toolchain **not yet installed** on the dev machine (2026-10-06) — required before milestone 2 (`winget install Rustlang.Rustup` + MSVC Build Tools).
-- Git remote: private GitHub repo `roveroniandrea/save-files-manager` (branch `main`).
+- Rust stable (x86_64-pc-windows-msvc) via rustup + VS Build Tools 2019 installed (2026-10-06).
+- Git remote: private GitHub repo `roveroniandrea/save_files_manager` (branch `main`).
 
 ## Log
 - 2026-10-06 — Milestone 1: scaffolded project via `create-tauri-app` (svelte-ts template, SvelteKit + adapter-static), wrote spec and project docs.
 
 ## Next steps
-- Install Rust, verify `npm run tauri dev` opens the window.
+- Verify `npm run tauri dev` opens the window.
 - Milestone 2: `src-tauri/src/config.rs` + `error.rs`, `Config`/`Game`/`Profile`/`SavePath` structs, atomic save, unit tests.
