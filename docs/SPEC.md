@@ -58,10 +58,12 @@ Copy uses `walkdir` with preserved mtimes (`filetime`); handles read-only attrib
 
 ## Data layout
 ```
-%APPDATA%\SaveFilesManager\
+%APPDATA%\SaveFilesManager\     # app dir (fixed)
   config.json                 # settings + games list (versioned schema)
+  config.json.bak             # previous config.json, kept on every save
   manifest\manifest.yaml, manifest.meta.json (etag, fetched_at)
   icons\<game-id>.png
+<storage root>\               # settings.storage_root, defaults to the app dir
   games\<game-id>\
     profiles\<profile-id>\data\<path-index>\...
     profiles\<profile-id>\profile.json
@@ -69,6 +71,13 @@ Copy uses `walkdir` with preserved mtimes (`filetime`); handles read-only attrib
     swap.journal.json         # only during a swap
 ```
 `config.json` (schema v1): `{ version, settings{storage_root, backup_limit, include_config, theme}, games:[{ id(uuid), name, source:{kind:"steam",appid,install_dir}|{kind:"manual"}, exe_path, icon, save_paths:[{template, resolved}], profiles:[{id, name, created_at, last_used_at}], active_profile_id, backup_limit? }] }`. Profile folders use ids (not names) so renames are free.
+
+Config persistence rules:
+- Missing `config.json` → default config (nothing is written until the first change).
+- On load the document is migrated to the current schema version. A **newer** version than the app supports, invalid JSON, or broken invariants (duplicate ids, active profile not among the game's profiles, a game with profiles but no active one, empty names, backup limit 0) are load errors: the app then runs read-only and never overwrites the file.
+- Every change is applied to a copy, validated, written to `config.json.tmp` (fsync), the old file is copied to `config.json.bak`, then the tmp file is renamed over `config.json`. The in-memory config changes only after a successful write.
+- Optional fields may be omitted from the file and take their defaults, so additive changes don't need a schema bump.
+- The storage root cannot be changed while games are configured (data is not moved yet, see `KNOWN_BUGS.md` KB-004).
 
 ## Architecture
 ```
