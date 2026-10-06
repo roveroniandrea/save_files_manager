@@ -16,7 +16,7 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 - Light/dark theme; English or Italian UI (follows Windows by default, changeable in Settings).
 
 ## Install
-Run `Save Files Manager_<version>_x64-setup.exe` (built with `npm run tauri build`, see below). It installs for the current user only (no administrator rights needed) and requires the Microsoft Edge WebView2 runtime, which Windows 10/11 already include (the installer downloads it if missing).
+Run `Save Files Manager_<version>_x64-setup.exe` (built with `npm run tauri build`, see below). It installs for the current user only (no administrator rights needed) and requires the Microsoft Edge WebView2 runtime, which Windows 10/11 already include (the installer downloads it if missing). Setup asks for its language (English/Italiano) on the first install only; later installs reuse that choice. The app's language is set separately in Settings.
 
 Only one copy of the app runs at a time; starting it again brings the open window to the front.
 

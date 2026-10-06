@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 - Italian translation of the whole UI (`src/lib/i18n/it.ts`) and a **Language** setting (Same as Windows / English / Italiano; "Same as Windows" uses the WebView/OS language and falls back to English). Dates and sizes follow the UI language; `<html lang>` is set accordingly. New optional config field `settings.language` (no schema change).
-- The installer is available in English and Italian (language selector at the start of setup).
+- The installer is available in English and Italian (language selector at the start of setup, first install only; see KB-018).
 - Release packaging: NSIS installer (per-user, no admin rights, ~2.3 MB; release exe ~6.5 MB), app icon (source `src-tauri/icons/app-icon.svg`), product metadata, minimum window size.
 - Only one instance of the app runs at a time; starting it again focuses the existing window (prevents two processes from editing the config or swapping folders at once).
 - Release builds no longer show the browser context menu (Back, Refresh, …) outside text fields.
