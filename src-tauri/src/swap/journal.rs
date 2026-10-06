@@ -36,6 +36,13 @@ pub enum Step {
     Loaded,
 }
 
+/// A live save folder and the id of its save path (keys the stored copies).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LivePath {
+    pub id: Uuid,
+    pub path: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Journal {
     pub operation: Operation,
@@ -46,8 +53,8 @@ pub struct Journal {
     pub to: Option<Uuid>,
     /// Name of the pre-operation backup folder under `backups/`.
     pub backup: String,
-    /// Live save folders, in save path index order.
-    pub save_paths: Vec<PathBuf>,
+    /// Live save folders.
+    pub save_paths: Vec<LivePath>,
     pub step: Step,
     pub started_at: DateTime<Utc>,
 }
@@ -117,7 +124,10 @@ mod tests {
             from: Uuid::new_v4(),
             to: Some(Uuid::new_v4()),
             backup: "20261006T120000000Z_x".into(),
-            save_paths: vec![PathBuf::from(r"C:\saves")],
+            save_paths: vec![LivePath {
+                id: Uuid::new_v4(),
+                path: PathBuf::from(r"C:\saves"),
+            }],
             step: Step::BackingUp,
             started_at: Utc::now(),
         }

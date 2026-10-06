@@ -1,4 +1,4 @@
-//! Pre-operation backups: `games/<id>/backups/<timestamp>_<profile-id>/<i>/`
+//! Pre-operation backups: `games/<id>/backups/<timestamp>_<profile-id>/<save-path-id>/`
 //! plus `backup.json`, which is written last and marks the backup complete.
 
 use std::fs;
@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 
 use super::copy;
+use super::journal::LivePath;
 
 pub const META_FILE: &str = "backup.json";
 
@@ -27,7 +28,8 @@ pub struct BackupMeta {
     pub profile_id: Uuid,
     pub created_at: DateTime<Utc>,
     pub reason: BackupReason,
-    pub save_path_count: usize,
+    /// Save paths contained in the backup (one folder each).
+    pub save_path_ids: Vec<Uuid>,
 }
 
 /// A complete backup, as listed to the UI.
@@ -44,13 +46,13 @@ pub fn backup_name(at: DateTime<Utc>, profile: Uuid) -> String {
     format!("{}_{}", at.format("%Y%m%dT%H%M%S%3fZ"), profile)
 }
 
-/// Copies every live folder into `dir/<i>` and then writes the metadata.
-pub fn create(dir: &Path, live: &[PathBuf], meta: &BackupMeta) -> AppResult<()> {
+/// Copies every live folder into `dir/<save-path-id>` and then writes the metadata.
+pub fn create(dir: &Path, live: &[LivePath], meta: &BackupMeta) -> AppResult<()> {
     if dir.exists() {
         return Err(AppError::Other(format!("backup {} already exists", dir.display())));
     }
-    for (i, path) in live.iter().enumerate() {
-        copy::copy_dir_contents(path, &dir.join(i.to_string()))?;
+    for live in live {
+        copy::copy_dir_contents(&live.path, &dir.join(live.id.to_string()))?;
     }
     let json = serde_json::to_vec_pretty(meta).map_err(|e| AppError::Other(e.to_string()))?;
     let meta_path = dir.join(META_FILE);
@@ -113,12 +115,12 @@ mod tests {
     use chrono::TimeZone;
     use tempfile::tempdir;
 
-    fn meta(profile: Uuid) -> BackupMeta {
+    fn meta(profile: Uuid, live: &[LivePath]) -> BackupMeta {
         BackupMeta {
             profile_id: profile,
             created_at: Utc::now(),
             reason: BackupReason::Switch,
-            save_path_count: 2,
+            save_path_ids: live.iter().map(|l| l.id).collect(),
         }
     }
 
@@ -126,8 +128,11 @@ mod tests {
     fn create_list_find_prune() {
         let tmp = tempdir().unwrap();
         let live0 = tmp.path().join("live0");
-        let live1 = tmp.path().join("live1-missing");
         write_file(&live0.join("s.sav"), b"save", 100);
+        let live = [
+            LivePath { id: Uuid::new_v4(), path: live0.clone() },
+            LivePath { id: Uuid::new_v4(), path: tmp.path().join("live1-missing") },
+        ];
         let backups = tmp.path().join("backups");
         let profile = Uuid::new_v4();
 
@@ -135,7 +140,7 @@ mod tests {
         for i in 0..4 {
             let at = Utc.timestamp_opt(1_700_000_000 + i, 0).unwrap();
             let name = backup_name(at, profile);
-            create(&backups.join(&name), &[live0.clone(), live1.clone()], &meta(profile)).unwrap();
+            create(&backups.join(&name), &live, &meta(profile, &live)).unwrap();
             names.push(name);
         }
         // An incomplete backup is ignored by list and prune.
@@ -146,8 +151,9 @@ mod tests {
         assert_eq!(listed[0].id, names[3], "newest first");
         let (dir, m) = find(&backups, &names[1]).unwrap();
         assert_eq!(m.profile_id, profile);
-        assert_same_tree(&live0, &dir.join("0"));
-        assert!(dir.join("1").is_dir());
+        assert_eq!(m.save_path_ids, vec![live[0].id, live[1].id]);
+        assert_same_tree(&live0, &dir.join(live[0].id.to_string()));
+        assert!(dir.join(live[1].id.to_string()).is_dir());
 
         assert!(matches!(find(&backups, "../x"), Err(AppError::BackupNotFound(_))));
         assert!(find(&backups, "00000000T000000000Z_partial").is_err());

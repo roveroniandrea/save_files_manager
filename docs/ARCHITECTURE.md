@@ -13,27 +13,37 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
                                    ├─ steam      registry, libraryfolders.vdf, appmanifests    (planned)
                                    ├─ manifest   Ludusavi manifest fetch/index/resolve         (planned)
                                    ├─ process    running-game detection                        (planned)
-                                   ├─ icons      exe icon extraction                           (planned)
+                                   ├─ games      add/edit games (config + icon)
+                                   ├─ icons      exe icon extraction (Win32 → PNG), custom images, data URLs
                                    └─ launch     steam:// URL or exe spawn                     (planned)
 ```
 
 ## Frontend
 - SvelteKit with `adapter-static` (SPA, `ssr = false` in `src/routes/+layout.ts`).
-- `src/lib/api.ts` — typed wrappers over `invoke()` plus `errorMessage()` (localized from the error `kind`) / `errorDetail()`; `src/lib/types.ts` — shared types mirroring Rust structs (keep in sync with `config.rs`, `error.rs`, `swap/`).
+- `src/lib/api.ts` — typed wrappers over `invoke()` plus `errorMessage()` (localized from the error `kind`) / `errorDetail()`; `src/lib/types.ts` — shared types mirroring Rust structs (keep in sync with `config.rs`, `error.rs`, `swap/`, `games.rs`, `icons.rs`).
+- `src/lib/state.svelte.ts` — global `app` state: config snapshot, selected game, `busy`, toasts; `app.run(command)` runs a config-returning command and turns errors into toasts.
+- `src/lib/format.ts` — locale-aware sizes and dates.
+- `src/lib/components/` — `GameDetail` (profiles: switch with the `live_saves_empty` confirm, new fresh/clone, rename, delete; save folders), `GameEditor` (add/edit modal: name, exe, icon with preview, save folders, first profile / backup limit), `RemoveGameDialog`, `GameIcon`, `Modal` (native `<dialog>`), `Toasts`.
+- `src/routes/+page.svelte` — layout: game list sidebar + detail; shows startup recovery reports. `src/app.css` — theme tokens (light/dark via `prefers-color-scheme`).
+- Native dialogs (file/folder pickers, confirmations) come from `@tauri-apps/plugin-dialog`; their labels are passed through `t()`.
 - `src/lib/i18n/` — `en.ts` (reference catalog; flat keys, `{placeholders}`, `_one`/`_other` plural suffixes), `i18n.svelte.ts` (`t()`, `tn()`, reactive locale). Every UI string goes through it; English only until milestone 9 adds `it.ts`.
 
 ## Backend modules
 - `config.rs` — `Config`/`Settings`/`Game`/`GameSource`/`SavePath`/`Profile` (serde, snake_case JSON). `load` (missing file → default, migrate, validate), `save` (validate, tmp + fsync, `.bak`, rename). `ConfigStore` is the Tauri-managed state: `get()` returns a snapshot, `update(f)` applies `f` to a copy, saves, then commits; if the file could not be loaded the store is read-only.
-- `paths.rs` — `AppPaths` (fixed app dir: `config.json`, `manifest\`, `icons\`) and `StorageLayout` (storage root: `games\<id>\profiles\<id>\data\<i>`, `backups\`, `swap.journal.json`, `_orphaned\`).
+- `paths.rs` — `AppPaths` (fixed app dir: `config.json`, `manifest\`, `icons\`) and `StorageLayout` (storage root: `games\<id>\profiles\<id>\data\<save-path-id>`, `backups\`, `swap.journal.json`, `_orphaned\`).
 - `error.rs` — `AppError` (thiserror); every command returns `AppResult<T>`.
 - `swap/` — the swap engine (never loses data; see "Swap algorithm" in `docs/SPEC.md`):
   - `mod.rs` — `switch_profile`, `restore_backup`, `list_backups`, `recover_all` (startup), rollback logic, `SwapContext` (storage layout + `Guards`), test-only fail points (`fail_point(name)`, no-op in release builds).
   - `copy.rs` — copy folder contents preserving times/read-only, `clear_dir` (empties but keeps the folder), `remove_path`.
   - `journal.rs` — `swap.journal.json` (exclusive create = per-game lock, atomic step updates).
   - `backup.rs` — create/list/find/prune backups; `backup.json` marks completion.
-  - `validate.rs` — save path safety checks (`Guards`: protected and reserved folders).
+  - `validate.rs` — save path safety checks (`Guards`: protected and reserved folders); `live_paths` returns `LivePath { id, path }`.
+  - `manage.rs` — `create_profile` (fresh/clone), `rename_profile`, `delete_profile`, `remove_game`, `profile_stats`.
+  - `op_lock()` — app-wide mutex serializing every operation that touches save/profile folders.
   - `tests.rs`, `test_util.rs` — engine tests on temp dirs (round trip, every failure point, locked files, each crash state).
-- `lib.rs` — builds the app; runs `swap::recover_all` at startup (if the config loaded) and keeps the reports in `StartupRecovery`.
+- `games.rs` — `add_manual_game`, `update_game` (`GameInput`; save paths keep their id when edited).
+- `icons.rs` — `IconChoice` (keep/exe/custom/none), `apply` (writes `icons/<game-id>.<ext>`), `exe_icon_png` (Windows: `SHDefExtractIconW` + GDI → PNG via `png`), `data_url`, `preview`.
+- `lib.rs` — builds the app (plugins: opener, dialog); runs `swap::recover_all` at startup (if the config loaded) and keeps the reports in `StartupRecovery`.
 - `commands.rs` — thin `#[tauri::command]` layer.
 
 ## Tauri commands
@@ -45,17 +55,27 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
 | `list_backups` | `gameId` | `BackupInfo[]` | Complete backups, newest first. |
 | `restore_backup` | `gameId`, `backupId` | `Config` | Async. Only backups of the active profile. |
 | `take_recovery_reports` | — | `RecoveryReport[]` | Startup recovery results; returned once. |
+| `add_game` | `input: GameInput`, `firstProfileName` | `Config` | Async. Manual game; validates save folders; default icon = exe icon. |
+| `update_game` | `gameId`, `input: GameInput` | `Config` | Async. Save paths with `id` keep their data. |
+| `remove_game` | `gameId`, `keepData` | `Config` | Async. Live folders untouched; data → `_orphaned` or deleted. |
+| `create_profile` | `gameId`, `name`, `source: {kind:"fresh"} \| {kind:"clone", profile_id}` | `Config` | Async. |
+| `rename_profile` | `gameId`, `profileId`, `name` | `Config` | `name_taken`, `empty_name`. |
+| `delete_profile` | `gameId`, `profileId` | `Config` | Async. `profile_active` for the active one. |
+| `profile_stats` | `gameId` | `ProfileStats[]` | Async. Size + newest mtime per profile. |
+| `get_icon` | `gameId` | `string \| null` | `data:` URL. |
+| `preview_icon` | `choice: IconChoice`, `exePath` | `string \| null` | Async. Preview in the editor. |
 
 ## Data layout
 App dir `%APPDATA%\SaveFilesManager\` (fixed) and storage root (`settings.storage_root`, defaults to the app dir):
 ```
 config.json, config.json.bak                          (app dir)
 manifest\manifest.yaml, manifest.meta.json, index.json (app dir)
-icons\<game-id>.png                                   (app dir)
+icons\<game-id>.<png|jpg|…>                           (app dir)
 games\<game-id>\                                      (storage root)
-  profiles\<profile-id>\data\<path-index>\...
+  profiles\<profile-id>\data\<save-path-id>\...
   profiles\<profile-id>\staging\, trash\            (only while storing)
-  backups\<timestamp>_<profile-id>\<path-index>\..., backup.json
+  backups\<timestamp>_<profile-id>\<save-path-id>\..., backup.json
+games\_orphaned\<game-id>_<timestamp>\               (storage root; data of removed games)
   swap.journal.json   (only while an operation is in progress, or after a failed rollback)
 ```
 See `docs/SPEC.md` for the config schema and the swap algorithm.

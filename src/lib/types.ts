@@ -18,6 +18,8 @@ export type GameSource =
   | { kind: "manual" };
 
 export interface SavePath {
+  /** Stable id: stored profile data is keyed by it. */
+  id: Uuid;
   template: string;
   resolved: string;
 }
@@ -66,7 +68,7 @@ export interface BackupInfo {
   profile_id: Uuid;
   created_at: Timestamp;
   reason: BackupReason;
-  save_path_count: number;
+  save_path_ids: Uuid[];
 }
 
 export type RecoveryOutcome = "rolled_back" | "completed" | "failed";
@@ -76,4 +78,33 @@ export interface RecoveryReport {
   game_name: string | null;
   outcome: RecoveryOutcome;
   error: string | null;
+}
+
+export type IconChoice =
+  | { kind: "keep" }
+  | { kind: "exe" }
+  | { kind: "custom"; path: string }
+  | { kind: "none" };
+
+export interface SavePathInput {
+  /** Existing save path being edited; omitted for a new one. */
+  id?: Uuid;
+  path: string;
+}
+
+/** Editable fields of a game (`games::GameInput`). */
+export interface GameInput {
+  name: string;
+  exe_path: string | null;
+  save_paths: SavePathInput[];
+  backup_limit: number | null;
+  icon: IconChoice;
+}
+
+export type NewProfileSource = { kind: "fresh" } | { kind: "clone"; profile_id: Uuid };
+
+export interface ProfileStats {
+  profile_id: Uuid;
+  size_bytes: number;
+  last_modified: Timestamp | null;
 }

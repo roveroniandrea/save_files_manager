@@ -20,9 +20,9 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
 1. **Library**
    - Scan Steam installs: read `SteamPath` from registry `HKCU\Software\Valve\Steam`, parse `steamapps/libraryfolders.vdf` → each library's `appmanifest_*.acf` (appid, name, installdir). Hide tools/redistributables (Steamworks Common Redistributables, Proton, etc.).
    - User chooses which discovered games to **add** (not all installed games are auto-tracked).
-   - **Add manual game**: pick exe (file dialog), set name, icon (default = extracted from exe; or custom image file), one or more save folders.
-   - **Edit game**: rename, change icon, change exe, add/remove/edit save paths, backup limit.
-   - **Remove game** from app: option to keep or delete stored profile data (default keep → moved to an `_orphaned` folder).
+   - **Add manual game**: pick exe (optional, file dialog; the name defaults to the exe name), set name, icon (default = extracted from exe as a 256px PNG; or a custom png/jpg/gif/webp/bmp/ico ≤ 5 MB; or none), one or more save folders, name of the first profile. Save folders pass the safety checks (see swap algorithm) when the game is saved, not only at swap time.
+   - **Edit game**: rename, change icon, change exe, add/remove/relocate save paths, backup limit. Each save path has a stable id, and profile data is stored per save path id: relocating a folder keeps its data, adding one gives the other profiles an empty copy of it (they start fresh for that folder), removing one keeps its stored copies in the profiles (never deleted implicitly). Blocked while an operation is in progress.
+   - **Remove game** from app: option to keep or delete stored profile data (default keep → moved to `games/_orphaned/<game-id>_<timestamp>`). The live save folders are never touched. The icon file is deleted.
 2. **Save location discovery**
    - Download Ludusavi manifest (`https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/master/data/manifest.yaml`), cache in app data, refresh at most once per 7 days using ETag/If-None-Match; manual "Refresh" button. App works offline with cached/no manifest.
    - Match by `steam.id == appid` (fallback: name). Keep only `files` entries with `when.os` = windows (or unspecified) and tag `save` (optionally `config`, user toggle).
@@ -31,10 +31,11 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
    - Paths stored as templates (with placeholders) + resolved absolute path, so they survive user-profile/drive changes.
 3. **Profiles (per game, independent)**
    - When a game is first configured, the existing live saves become the first profile (user names it, default "Default"), and it's marked **active**.
-   - **Create profile**: "Fresh" (empty save folders → the game starts a new save) or "Clone from <profile>".
+   - **Create profile**: "Fresh" (no stored data → the game starts a new save) or "Clone from <profile>" (the active profile is cloned from the live folders, others from their stored copy).
    - **Switch profile**: see swap algorithm. Active profile persisted per game.
-   - **Rename** any profile; **delete** non-active profiles (confirm dialog).
-   - Show per-profile: name, last used, size on disk, last modified time.
+   - **Rename** any profile; **delete** non-active profiles (confirm dialog; deletes its stored saves). Profile names are unique per game (case-insensitive) and non-empty.
+   - Show per-profile: name, active badge, last used, size and newest file modification time (live folders for the active profile, stored copy for the others).
+   - All profile/game file operations are serialized by one app-wide lock and refused (`operation_in_progress`) while a journal exists for the game.
 4. **Play**: button launches the game (Steam: `steam://rungameid/<appid>` via opener; manual: spawn exe with working dir = exe dir). Profile selector next to Play does "switch then launch".
 5. **Safety**
    - Block swap if the game process is running (match by exe path via `sysinfo`; for Steam games, any process whose exe lives under the install dir).
@@ -52,15 +53,15 @@ For game G, switching active profile A → B, with save paths P1..Pn (implemente
    - no overlap at all with the app dir or the storage root.
 2. **Empty-live check**: if a live Pi is empty/missing while A's stored copy of Pi has data → error `live_saves_empty`; the UI asks for confirmation and retries with `allow_empty_live`.
 3. Create the **journal** `games/<id>/swap.journal.json` (exclusive create → acts as a per-game lock; an existing journal → `operation_in_progress`). It holds operation, from, to, backup name, the live paths and the current step, so recovery never depends on the config.
-4. **Backup** (step `backing_up`): copy every live Pi → `backups/<yyyymmddThhmmssmmmZ>_<A>/<i>/`, then write `backup.json` (marks it complete).
-5. **Store A** (step `storing`): copy the backup → `profiles/<A>/staging/<i>`, rename `data`→`trash`, `staging`→`data`, delete `trash`.
-6. **Load B** (step `loading`): for each Pi, delete its contents (the folder itself is kept, created if missing) and copy `profiles/<B>/data/<i>` in (B fresh → Pi stays empty).
+4. **Backup** (step `backing_up`): copy every live Pi → `backups/<yyyymmddThhmmssmmmZ>_<A>/<save-path-id>/`, then write `backup.json` (marks it complete).
+5. **Store A** (step `storing`): copy the backup → `profiles/<A>/staging/<save-path-id>`, plus any stored folder of a save path no longer configured (removed save paths' data is carried over, never dropped), then rename `data`→`trash`, `staging`→`data`, delete `trash`.
+6. **Load B** (step `loading`): for each Pi, delete its contents (the folder itself is kept, created if missing) and copy `profiles/<B>/data/<save-path-id>` in (B fresh → Pi stays empty).
 7. Step `loaded`; set `active_profile_id = B` and `last_used_at` of A and B in config (atomic save; aborts if the active profile changed meanwhile).
 8. Delete the journal, prune complete backups to the game's limit (default 5). Failures here are not errors (see recovery of `loaded`).
 - **On any error in 4–7**: undo according to the step — `backing_up`: delete the partial backup; `storing`: repair A's store (`trash`→`data` if `data` is missing, delete `staging`/`trash`); `loading`/`loaded`: restore every Pi from the backup (journal reset to `loading` first). Then delete the journal and surface the original error; A stays active. If the undo itself fails → error `rollback_failed`, the journal and backup are kept.
 - **Startup recovery** (automatic, before the UI can start operations; reported once to the UI): every `games/*/swap.journal.json` is undone as above and `from` is made active — except step `loaded`, which is **completed** instead (all files were copied; the user may already have played on them): `to` is made active (restore: unchanged). Then the journal is deleted. On failure the journal stays and recovery retries at the next start.
 
-**Restore backup** (guarded the same way): only backups of the currently *active* profile with the same number of save paths can be restored. Live Pi are first backed up (reason `restore`, so a restore can be undone), then replaced with the backup content; the active profile does not change.
+**Restore backup** (guarded the same way): only backups of the currently *active* profile can be restored; only save paths present both in the game and in the backup are restored (others are left untouched). Live Pi are first backed up (reason `restore`, so a restore can be undone), then replaced with the backup content; the active profile does not change.
 
 **Copy rules**: `walkdir`, file contents + modification/access times (set via a `FILE_WRITE_ATTRIBUTES` handle so read-only files and folders work) + read-only attribute are preserved; read-only files are made writable before overwrite/delete. Symlinks/junctions inside save folders are refused (the backup step fails before anything is modified). Long paths are handled by Rust's std (automatic `\\?\` prefix).
 
@@ -73,14 +74,14 @@ For game G, switching active profile A → B, with save paths P1..Pn (implemente
   icons\<game-id>.png
 <storage root>\               # settings.storage_root, defaults to the app dir
   games\<game-id>\
-    profiles\<profile-id>\data\<path-index>\...
+    profiles\<profile-id>\data\<save-path-id>\...
     profiles\<profile-id>\profile.json
     profiles\<profile-id>\staging\, trash\   # only during a store
-    backups\<timestamp>_<profile-id>\<path-index>\...
-    backups\<timestamp>_<profile-id>\backup.json   # {profile_id, created_at, reason, save_path_count}; marks the backup complete
+    backups\<timestamp>_<profile-id>\<save-path-id>\...
+    backups\<timestamp>_<profile-id>\backup.json   # {profile_id, created_at, reason, save_path_ids}; marks the backup complete
     swap.journal.json         # only during a swap
 ```
-`config.json` (schema v1): `{ version, settings{storage_root, backup_limit, include_config, theme}, games:[{ id(uuid), name, source:{kind:"steam",appid,install_dir}|{kind:"manual"}, exe_path, icon, save_paths:[{template, resolved}], profiles:[{id, name, created_at, last_used_at}], active_profile_id, backup_limit? }] }`. Profile folders use ids (not names) so renames are free.
+`config.json` (schema v1): `{ version, settings{storage_root, backup_limit, include_config, theme}, games:[{ id(uuid), name, source:{kind:"steam",appid,install_dir}|{kind:"manual"}, exe_path, icon, save_paths:[{id(uuid), template, resolved}], profiles:[{id, name, created_at, last_used_at}], active_profile_id, backup_limit? }] }`. Profile folders use ids (not names) so renames are free.
 
 Config persistence rules:
 - Missing `config.json` → default config (nothing is written until the first change).

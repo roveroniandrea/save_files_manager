@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use crate::config::{Game, GameSource};
 use crate::error::{AppError, AppResult};
 
+use super::journal::LivePath;
+
 /// Folders a save path may never be (or contain), because emptying it would
 /// destroy unrelated data: user/known folders, the app's own folders, the game
 /// install folder.
@@ -53,7 +55,7 @@ fn is_same_or_inside(path: &Path, base: &Path) -> bool {
 }
 
 /// Returns the live save folders of `game` after checking they are safe to swap.
-pub fn live_paths(game: &Game, guards: &Guards) -> AppResult<Vec<PathBuf>> {
+pub fn live_paths(game: &Game, guards: &Guards) -> AppResult<Vec<LivePath>> {
     if game.save_paths.is_empty() {
         return Err(AppError::Other(format!("game '{}' has no save folders", game.name)));
     }
@@ -72,8 +74,8 @@ pub fn live_paths(game: &Game, guards: &Guards) -> AppResult<Vec<PathBuf>> {
         protected.push(exe_dir.to_path_buf());
     }
 
-    let live: Vec<PathBuf> = game.save_paths.iter().map(|p| p.resolved.clone()).collect();
-    for (i, path) in live.iter().enumerate() {
+    let paths: Vec<&Path> = game.save_paths.iter().map(|p| p.resolved.as_path()).collect();
+    for (i, path) in paths.iter().copied().enumerate() {
         if !path.is_absolute() {
             return invalid(path, "the path is not absolute");
         }
@@ -90,14 +92,21 @@ pub fn live_paths(game: &Game, guards: &Guards) -> AppResult<Vec<PathBuf>> {
         {
             return invalid(path, &format!("it overlaps the app's data folder {}", r.display()));
         }
-        if let Some(other) = live[..i]
+        if let Some(other) = paths[..i]
             .iter()
             .find(|o| is_same_or_inside(o, path) || is_same_or_inside(path, o))
         {
             return invalid(path, &format!("it overlaps another save folder ({})", other.display()));
         }
     }
-    Ok(live)
+    Ok(game
+        .save_paths
+        .iter()
+        .map(|p| LivePath {
+            id: p.id,
+            path: p.resolved.clone(),
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -113,13 +122,7 @@ mod tests {
                 install_dir: PathBuf::from(r"D:\Steam\steamapps\common\G"),
             },
         );
-        g.save_paths = paths
-            .iter()
-            .map(|p| SavePath {
-                template: p.to_string(),
-                resolved: PathBuf::from(p),
-            })
-            .collect();
+        g.save_paths = paths.iter().map(|p| SavePath::new(*p, *p)).collect();
         g
     }
 

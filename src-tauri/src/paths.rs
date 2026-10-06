@@ -81,9 +81,9 @@ impl StorageLayout {
         self.game_dir(game).join("profiles").join(profile.to_string())
     }
 
-    /// Stored copy of save path number `index` for a profile.
-    pub fn profile_data_dir(&self, game: Uuid, profile: Uuid, index: usize) -> PathBuf {
-        self.profile_dir(game, profile).join("data").join(index.to_string())
+    /// Stored copy of one save path (by save path id) for a profile.
+    pub fn profile_data_dir(&self, game: Uuid, profile: Uuid, save_path: Uuid) -> PathBuf {
+        self.profile_dir(game, profile).join("data").join(save_path.to_string())
     }
 
     pub fn backups_dir(&self, game: Uuid) -> PathBuf {
@@ -118,7 +118,8 @@ mod tests {
         let layout = StorageLayout::new(r"C:\root");
         let game = Uuid::nil();
         let profile = Uuid::max();
-        let dir = layout.profile_data_dir(game, profile, 2);
+        let path = Uuid::from_u128(2);
+        let dir = layout.profile_data_dir(game, profile, path);
         assert_eq!(
             dir,
             Path::new(r"C:\root")
@@ -127,7 +128,7 @@ mod tests {
                 .join("profiles")
                 .join(profile.to_string())
                 .join("data")
-                .join("2")
+                .join(path.to_string())
         );
         assert!(layout.journal_file(game).starts_with(layout.game_dir(game)));
     }

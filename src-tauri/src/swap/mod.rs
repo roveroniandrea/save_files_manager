@@ -8,13 +8,15 @@
 pub mod backup;
 pub mod copy;
 pub mod journal;
+pub mod manage;
 pub mod validate;
 
 #[cfg(test)]
 pub mod test_util;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,7 @@ use crate::error::{AppError, AppResult};
 use crate::paths::{AppPaths, StorageLayout};
 
 use backup::{BackupMeta, BackupReason};
+pub use journal::LivePath;
 use journal::{Journal, Operation, Step};
 pub use validate::Guards;
 
@@ -62,6 +65,7 @@ pub fn switch_profile(
     to: Uuid,
     opts: SwapOptions,
 ) -> AppResult<()> {
+    let _lock = op_lock();
     let config = store.get()?;
     let game = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
     let from = active_profile(game)?;
@@ -84,7 +88,7 @@ pub fn switch_profile(
             profile_id: from,
             created_at: journal.started_at,
             reason: BackupReason::Switch,
-            save_path_count: journal.save_paths.len(),
+            save_path_ids: journal.save_paths.iter().map(|l| l.id).collect(),
         };
         backup::create(&backup_dir, &journal.save_paths, &meta)?;
         fail_point("after_backup")?;
@@ -92,15 +96,20 @@ pub fn switch_profile(
         journal.set_step(&journal_path, Step::Storing)?;
         // The active profile's stored copy is refreshed from the backup just taken
         // (identical to live, and avoids reading the live folders twice).
-        let sources: Vec<PathBuf> = (0..journal.save_paths.len())
-            .map(|i| backup_dir.join(i.to_string()))
+        let sources: Vec<LivePath> = journal
+            .save_paths
+            .iter()
+            .map(|l| LivePath {
+                id: l.id,
+                path: backup_dir.join(l.id.to_string()),
+            })
             .collect();
         store_profile(&ctx.layout, game_id, from, &sources)?;
 
         journal.set_step(&journal_path, Step::Loading)?;
-        for (i, live) in journal.save_paths.iter().enumerate() {
+        for live in &journal.save_paths {
             fail_point("load_path")?;
-            copy::replace_dir_contents(&ctx.layout.profile_data_dir(game_id, to, i), live)?;
+            copy::replace_dir_contents(&ctx.layout.profile_data_dir(game_id, to, live.id), &live.path)?;
         }
         journal.set_step(&journal_path, Step::Loaded)?;
         fail_point("before_commit")?;
@@ -129,8 +138,10 @@ pub fn switch_profile(
 
 /// Restores backup `backup_id` into the live folders of `game_id`. Only
 /// backups of the currently active profile can be restored; the live content
-/// is itself backed up first, so a restore can be undone.
+/// is itself backed up first, so a restore can be undone. Save folders that are
+/// not in the backup (added later) are left untouched.
 pub fn restore_backup(store: &ConfigStore, ctx: &SwapContext, game_id: Uuid, backup_id: &str) -> AppResult<()> {
+    let _lock = op_lock();
     let config = store.get()?;
     let game = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
     let active = active_profile(game)?;
@@ -142,12 +153,14 @@ pub fn restore_backup(store: &ConfigStore, ctx: &SwapContext, game_id: Uuid, bac
             "this backup belongs to a different profile than the active one; switch to that profile first".into(),
         ));
     }
-    if meta.save_path_count != live.len() {
-        return Err(AppError::Other(format!(
-            "this backup has {} save folder(s) but the game now has {}",
-            meta.save_path_count,
-            live.len()
-        )));
+    let live: Vec<LivePath> = live
+        .into_iter()
+        .filter(|l| meta.save_path_ids.contains(&l.id))
+        .collect();
+    if live.is_empty() {
+        return Err(AppError::Other(
+            "this backup contains none of the game's current save folders".into(),
+        ));
     }
 
     let journal_path = ctx.layout.journal_file(game_id);
@@ -159,13 +172,13 @@ pub fn restore_backup(store: &ConfigStore, ctx: &SwapContext, game_id: Uuid, bac
             profile_id: active,
             created_at: journal.started_at,
             reason: BackupReason::Restore,
-            save_path_count: journal.save_paths.len(),
+            save_path_ids: journal.save_paths.iter().map(|l| l.id).collect(),
         };
         backup::create(&backups_dir.join(&journal.backup), &journal.save_paths, &meta)?;
         journal.set_step(&journal_path, Step::Loading)?;
-        for (i, live) in journal.save_paths.iter().enumerate() {
+        for live in &journal.save_paths {
             fail_point("load_path")?;
-            copy::replace_dir_contents(&source.join(i.to_string()), live)?;
+            copy::replace_dir_contents(&source.join(live.id.to_string()), &live.path)?;
         }
         journal.set_step(&journal_path, Step::Loaded)?;
         Ok(())
@@ -182,12 +195,20 @@ pub fn list_backups(ctx: &SwapContext, game_id: Uuid) -> AppResult<Vec<backup::B
     backup::list(&ctx.layout.backups_dir(game_id))
 }
 
+static OP_LOCK: Mutex<()> = Mutex::new(());
+
+/// Serializes every operation that touches save or profile folders, so two
+/// commands (running on different threads) never interleave.
+pub(crate) fn op_lock() -> MutexGuard<'static, ()> {
+    OP_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn active_profile(game: &Game) -> AppResult<Uuid> {
     game.active_profile_id
         .ok_or_else(|| AppError::Other(format!("game '{}' has no active profile", game.name)))
 }
 
-fn new_journal(operation: Operation, game_id: Uuid, from: Uuid, to: Option<Uuid>, live: Vec<PathBuf>) -> Journal {
+fn new_journal(operation: Operation, game_id: Uuid, from: Uuid, to: Option<Uuid>, live: Vec<LivePath>) -> Journal {
     let now = Utc::now();
     Journal {
         operation,
@@ -206,18 +227,18 @@ fn check_live_not_empty(
     layout: &StorageLayout,
     game_id: Uuid,
     active: Uuid,
-    live: &[PathBuf],
+    live: &[LivePath],
     opts: SwapOptions,
 ) -> AppResult<()> {
     if opts.allow_empty_live {
         return Ok(());
     }
     let mut empty = Vec::new();
-    for (i, path) in live.iter().enumerate() {
-        if copy::is_empty_or_missing(path)?
-            && !copy::is_empty_or_missing(&layout.profile_data_dir(game_id, active, i))?
+    for live in live {
+        if copy::is_empty_or_missing(&live.path)?
+            && !copy::is_empty_or_missing(&layout.profile_data_dir(game_id, active, live.id))?
         {
-            empty.push(path.clone());
+            empty.push(live.path.clone());
         }
     }
     if empty.is_empty() {
@@ -227,15 +248,24 @@ fn check_live_not_empty(
     }
 }
 
-/// Replaces `profiles/<profile>/data` with copies of `sources` (one per save
-/// path), via `staging` and `trash` folders so the old data is only discarded
-/// once the new copy is complete.
-fn store_profile(layout: &StorageLayout, game_id: Uuid, profile: Uuid, sources: &[PathBuf]) -> AppResult<()> {
+/// Replaces `profiles/<profile>/data/<id>` with copies of `sources` (keyed by
+/// save path id), via `staging` and `trash` folders so the old data is only
+/// discarded once the new copy is complete. Stored folders of save paths not
+/// in `sources` (removed from the game) are carried over, never dropped.
+fn store_profile(layout: &StorageLayout, game_id: Uuid, profile: Uuid, sources: &[LivePath]) -> AppResult<()> {
     let dir = layout.profile_dir(game_id, profile);
     let (data, staging, trash) = (dir.join("data"), dir.join("staging"), dir.join("trash"));
     repair_profile_store(layout, game_id, profile)?;
-    for (i, src) in sources.iter().enumerate() {
-        copy::copy_dir_contents(src, &staging.join(i.to_string()))?;
+    for src in sources {
+        copy::copy_dir_contents(&src.path, &staging.join(src.id.to_string()))?;
+    }
+    if let Ok(entries) = fs::read_dir(&data) {
+        for entry in entries.flatten() {
+            let target = staging.join(entry.file_name());
+            if !target.exists() {
+                copy::copy_dir_contents(&entry.path(), &target)?;
+            }
+        }
     }
     fail_point("store_swap")?;
     if data.exists() {
@@ -277,9 +307,9 @@ fn roll_back_files(layout: &StorageLayout, journal_path: &Path, journal: &mut Jo
             if backup::find(&layout.backups_dir(journal.game_id), &journal.backup).is_err() {
                 return Err(AppError::BackupNotFound(journal.backup.clone()));
             }
-            for (i, live) in journal.save_paths.iter().enumerate() {
+            for live in &journal.save_paths {
                 fail_point("rollback_path")?;
-                copy::replace_dir_contents(&backup_dir.join(i.to_string()), live)?;
+                copy::replace_dir_contents(&backup_dir.join(live.id.to_string()), &live.path)?;
             }
             if journal.operation == Operation::Switch {
                 repair_profile_store(layout, journal.game_id, journal.from)?;
@@ -340,6 +370,7 @@ pub struct RecoveryReport {
 /// Recovers every interrupted operation found under the storage root.
 /// Called once at startup, before the UI can start new operations.
 pub fn recover_all(store: &ConfigStore, layout: &StorageLayout) -> Vec<RecoveryReport> {
+    let _lock = op_lock();
     let games_dir = layout.root().join("games");
     let Ok(entries) = fs::read_dir(&games_dir) else {
         return Vec::new();

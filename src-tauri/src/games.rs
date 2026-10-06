@@ -1,0 +1,256 @@
+//! Adding and editing games (config + icon). File operations on profile data
+//! live in `swap::manage`.
+
+use std::path::PathBuf;
+
+use serde::Deserialize;
+use uuid::Uuid;
+
+use crate::config::{clean_name, ConfigStore, Game, GameSource, Profile, SavePath};
+use crate::error::{AppError, AppResult};
+use crate::icons::{self, IconChoice};
+use crate::swap::{op_lock, validate, SwapContext};
+
+/// Editable fields of a game, as sent by the UI.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GameInput {
+    pub name: String,
+    #[serde(default)]
+    pub exe_path: Option<PathBuf>,
+    pub save_paths: Vec<SavePathInput>,
+    /// Per-game override of the backup limit (`None` = use the setting).
+    #[serde(default)]
+    pub backup_limit: Option<u32>,
+    #[serde(default)]
+    pub icon: IconChoice,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SavePathInput {
+    /// Existing save path being edited; `None` = new save path.
+    #[serde(default)]
+    pub id: Option<Uuid>,
+    pub path: PathBuf,
+}
+
+fn check_exe(exe: &Option<PathBuf>) -> AppResult<()> {
+    match exe {
+        Some(exe) if !exe.is_file() => Err(AppError::Other(format!("{} is not a file", exe.display()))),
+        _ => Ok(()),
+    }
+}
+
+/// Adds a manually configured game. Its current saves become the first
+/// profile (`first_profile`), which is active.
+pub fn add_manual_game(
+    store: &ConfigStore,
+    ctx: &SwapContext,
+    icons_dir: &std::path::Path,
+    input: GameInput,
+    first_profile: &str,
+) -> AppResult<Game> {
+    let mut game = Game::new(clean_name(&input.name)?, GameSource::Manual);
+    check_exe(&input.exe_path)?;
+    game.exe_path = input.exe_path;
+    game.backup_limit = input.backup_limit;
+    if input.save_paths.iter().any(|p| p.id.is_some()) {
+        return Err(AppError::Other("a new game cannot reference existing save paths".into()));
+    }
+    game.save_paths = input
+        .save_paths
+        .into_iter()
+        .map(|p| SavePath::new(p.path.display().to_string(), p.path))
+        .collect();
+    let profile = Profile::new(clean_name(first_profile)?);
+    game.active_profile_id = Some(profile.id);
+    game.profiles.push(profile);
+    validate::live_paths(&game, &ctx.guards)?;
+
+    // Default for a new game: the exe's icon.
+    let choice = match input.icon {
+        IconChoice::Keep => IconChoice::Exe,
+        other => other,
+    };
+    game.icon = icons::apply(icons_dir, game.id, &choice, game.exe_path.as_deref(), None)?;
+
+    let added = game.clone();
+    if let Err(e) = store.update(|c| {
+        c.games.push(added);
+        Ok(())
+    }) {
+        icons::remove(game.icon.as_deref());
+        return Err(e);
+    }
+    Ok(game)
+}
+
+/// Updates a game's name, exe, icon, backup limit and save paths. Save paths
+/// keep their id (and so their stored profile data) when edited; removed save
+/// paths' stored copies are kept in the profiles.
+pub fn update_game(
+    store: &ConfigStore,
+    ctx: &SwapContext,
+    icons_dir: &std::path::Path,
+    game_id: Uuid,
+    input: GameInput,
+) -> AppResult<Game> {
+    let _lock = op_lock();
+    let journal = ctx.layout.journal_file(game_id);
+    if journal.exists() {
+        return Err(AppError::OperationInProgress(journal));
+    }
+    let config = store.get()?;
+    let current = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
+    let mut game = current.clone();
+    game.name = clean_name(&input.name)?;
+    check_exe(&input.exe_path)?;
+    game.exe_path = input.exe_path;
+    game.backup_limit = input.backup_limit;
+    game.save_paths = input
+        .save_paths
+        .into_iter()
+        .map(|p| match p.id {
+            None => Ok(SavePath::new(p.path.display().to_string(), p.path)),
+            Some(id) => {
+                let old = current
+                    .save_paths
+                    .iter()
+                    .find(|s| s.id == id)
+                    .ok_or_else(|| AppError::Other(format!("save path {id} not found")))?;
+                if old.resolved == p.path {
+                    Ok(old.clone())
+                } else {
+                    Ok(SavePath {
+                        id,
+                        template: p.path.display().to_string(),
+                        resolved: p.path,
+                    })
+                }
+            }
+        })
+        .collect::<AppResult<_>>()?;
+    validate::live_paths(&game, &ctx.guards)?;
+
+    let previous_icon = current.icon.clone();
+    game.icon = icons::apply(icons_dir, game_id, &input.icon, game.exe_path.as_deref(), previous_icon.as_deref())?;
+    let updated = game.clone();
+    store.update(|c| {
+        let g = c.game_mut(game_id).ok_or(AppError::GameNotFound(game_id))?;
+        *g = updated;
+        Ok(())
+    })?;
+    Ok(game)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::paths::StorageLayout;
+    use crate::swap::test_util::write_file;
+    use crate::swap::{switch_profile, Guards, SwapOptions};
+    use crate::swap::manage::{create_profile, NewProfileSource};
+    use tempfile::{tempdir, TempDir};
+
+    fn setup() -> (TempDir, ConfigStore, SwapContext, PathBuf) {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("storage");
+        let store = ConfigStore::open(tmp.path().join("config.json"));
+        let ctx = SwapContext {
+            layout: StorageLayout::new(&root),
+            guards: Guards {
+                protected: vec![],
+                reserved: vec![root],
+            },
+        };
+        let icons = tmp.path().join("icons");
+        (tmp, store, ctx, icons)
+    }
+
+    fn input(name: &str, paths: Vec<SavePathInput>) -> GameInput {
+        GameInput {
+            name: name.into(),
+            exe_path: None,
+            save_paths: paths,
+            backup_limit: None,
+            icon: IconChoice::Keep,
+        }
+    }
+
+    fn new_path(p: PathBuf) -> SavePathInput {
+        SavePathInput { id: None, path: p }
+    }
+
+    #[test]
+    fn add_game_creates_active_first_profile() {
+        let (tmp, store, ctx, icons) = setup();
+        let live = tmp.path().join("live");
+        let game = add_manual_game(&store, &ctx, &icons, input(" My Game ", vec![new_path(live.clone())]), "Andrea")
+            .unwrap();
+        assert_eq!(game.name, "My Game");
+        assert_eq!(game.active_profile().unwrap().name, "Andrea");
+        assert_eq!(game.save_paths[0].resolved, live);
+        assert_eq!(store.get().unwrap().games, vec![game]);
+    }
+
+    #[test]
+    fn add_game_rejects_unsafe_or_missing_paths() {
+        let (tmp, store, ctx, icons) = setup();
+        let root = ctx.layout.root().to_path_buf();
+        assert!(add_manual_game(&store, &ctx, &icons, input("G", vec![]), "A").is_err());
+        assert!(matches!(
+            add_manual_game(&store, &ctx, &icons, input("G", vec![new_path(root.join("x"))]), "A"),
+            Err(AppError::InvalidSavePath { .. })
+        ));
+        let mut i = input("G", vec![new_path(tmp.path().join("live"))]);
+        i.exe_path = Some(tmp.path().join("missing.exe"));
+        assert!(add_manual_game(&store, &ctx, &icons, i, "A").is_err());
+        assert!(store.get().unwrap().games.is_empty());
+    }
+
+    #[test]
+    fn editing_save_paths_keeps_profile_data_by_id() {
+        let (tmp, store, ctx, icons) = setup();
+        let (p1, p2) = (tmp.path().join("one"), tmp.path().join("two"));
+        write_file(&p1.join("1.sav"), b"andrea one", 1);
+        write_file(&p2.join("2.sav"), b"andrea two", 2);
+        let game = add_manual_game(
+            &store,
+            &ctx,
+            &icons,
+            input("G", vec![new_path(p1.clone()), new_path(p2.clone())]),
+            "Andrea",
+        )
+        .unwrap();
+        let andrea = game.active_profile_id.unwrap();
+        let silvia = create_profile(&store, &ctx, game.id, "Silvia", NewProfileSource::Fresh).unwrap();
+        switch_profile(&store, &ctx, game.id, silvia.id, SwapOptions::default()).unwrap();
+
+        // Remove the first save path: the second must keep its data.
+        let keep_id = game.save_paths[1].id;
+        let edited = update_game(
+            &store,
+            &ctx,
+            &icons,
+            game.id,
+            input("G", vec![SavePathInput { id: Some(keep_id), path: p2.clone() }]),
+        )
+        .unwrap();
+        assert_eq!(edited.save_paths.len(), 1);
+        assert_eq!(edited.save_paths[0].id, keep_id);
+
+        switch_profile(&store, &ctx, game.id, andrea, SwapOptions::default()).unwrap();
+        assert_eq!(std::fs::read(p2.join("2.sav")).unwrap(), b"andrea two");
+        // The removed path's stored copy is still kept in the profile.
+        let removed = ctx.layout.profile_data_dir(game.id, andrea, game.save_paths[0].id);
+        assert!(removed.join("1.sav").exists());
+
+        assert!(update_game(
+            &store,
+            &ctx,
+            &icons,
+            game.id,
+            input("G", vec![SavePathInput { id: Some(Uuid::new_v4()), path: p2 }]),
+        )
+        .is_err());
+    }
+}

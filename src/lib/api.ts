@@ -1,7 +1,19 @@
 // Typed wrappers over Tauri commands (src-tauri/src/commands.rs).
 import { invoke } from "@tauri-apps/api/core";
 import { hasKey, t } from "./i18n";
-import type { AppError, BackupInfo, Config, RecoveryReport, Settings, SwapOptions, Uuid } from "./types";
+import type {
+  AppError,
+  BackupInfo,
+  Config,
+  GameInput,
+  IconChoice,
+  NewProfileSource,
+  ProfileStats,
+  RecoveryReport,
+  Settings,
+  SwapOptions,
+  Uuid,
+} from "./types";
 
 export const getConfig = () => invoke<Config>("get_config");
 
@@ -18,6 +30,33 @@ export const restoreBackup = (gameId: Uuid, backupId: string) =>
 
 /** Startup crash-recovery results; returned only once per app run. */
 export const takeRecoveryReports = () => invoke<RecoveryReport[]>("take_recovery_reports");
+
+export const addGame = (input: GameInput, firstProfileName: string) =>
+  invoke<Config>("add_game", { input, firstProfileName });
+
+export const updateGame = (gameId: Uuid, input: GameInput) =>
+  invoke<Config>("update_game", { gameId, input });
+
+/** Removes the game from the app; live save folders are never touched. */
+export const removeGame = (gameId: Uuid, keepData: boolean) =>
+  invoke<Config>("remove_game", { gameId, keepData });
+
+export const createProfile = (gameId: Uuid, name: string, source: NewProfileSource) =>
+  invoke<Config>("create_profile", { gameId, name, source });
+
+export const renameProfile = (gameId: Uuid, profileId: Uuid, name: string) =>
+  invoke<Config>("rename_profile", { gameId, profileId, name });
+
+export const deleteProfile = (gameId: Uuid, profileId: Uuid) =>
+  invoke<Config>("delete_profile", { gameId, profileId });
+
+export const profileStats = (gameId: Uuid) => invoke<ProfileStats[]>("profile_stats", { gameId });
+
+/** The game's icon as a `data:` URL, or null. */
+export const getIcon = (gameId: Uuid) => invoke<string | null>("get_icon", { gameId });
+
+export const previewIcon = (choice: IconChoice, exePath: string | null) =>
+  invoke<string | null>("preview_icon", { choice, exePath });
 
 export function isAppError(e: unknown): e is AppError {
   return !!e && typeof e === "object" && "kind" in e && "message" in e;

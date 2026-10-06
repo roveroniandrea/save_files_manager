@@ -128,10 +128,23 @@ pub enum GameSource {
 
 /// A save folder of a game. `template` may contain Ludusavi-style placeholders
 /// (e.g. `<winAppData>/Game`); `resolved` is the absolute path used for swaps.
+/// Stored profile data is keyed by `id`, so save paths can be added, removed or
+/// relocated without mixing up the data of the others.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavePath {
+    pub id: Uuid,
     pub template: String,
     pub resolved: PathBuf,
+}
+
+impl SavePath {
+    pub fn new(template: impl Into<String>, resolved: impl Into<PathBuf>) -> Self {
+        SavePath {
+            id: Uuid::new_v4(),
+            template: template.into(),
+            resolved: resolved.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -151,6 +164,16 @@ impl Profile {
             created_at: Utc::now(),
             last_used_at: None,
         }
+    }
+}
+
+/// Trims a user-entered name; empty names are rejected.
+pub fn clean_name(name: &str) -> AppResult<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        Err(AppError::EmptyName)
+    } else {
+        Ok(name.to_string())
     }
 }
 
@@ -187,6 +210,10 @@ impl Config {
             }
             if game.backup_limit == Some(0) {
                 return invalid(format!("game '{}': backup limit must be at least 1", game.name));
+            }
+            let mut path_ids = HashSet::new();
+            if let Some(p) = game.save_paths.iter().find(|p| !path_ids.insert(p.id)) {
+                return invalid(format!("game '{}': duplicate save path id {}", game.name, p.id));
             }
             let mut profile_ids = HashSet::new();
             for profile in &game.profiles {
@@ -351,10 +378,10 @@ mod tests {
                 install_dir: PathBuf::from(r"C:\Steam\steamapps\common\Hollow Knight"),
             },
         );
-        game.save_paths.push(SavePath {
-            template: "<winLocalAppDataLow>/Team Cherry/Hollow Knight".into(),
-            resolved: PathBuf::from(r"C:\Users\x\AppData\LocalLow\Team Cherry\Hollow Knight"),
-        });
+        game.save_paths.push(SavePath::new(
+            "<winLocalAppDataLow>/Team Cherry/Hollow Knight",
+            r"C:\Users\x\AppData\LocalLow\Team Cherry\Hollow Knight",
+        ));
         let andrea = Profile::new("Andrea");
         game.active_profile_id = Some(andrea.id);
         game.profiles.push(andrea);

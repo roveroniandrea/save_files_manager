@@ -33,6 +33,12 @@ pub enum AppError {
     GameNotFound(Uuid),
     #[error("profile {0} not found")]
     ProfileNotFound(Uuid),
+    #[error("a profile named '{0}' already exists")]
+    NameTaken(String),
+    #[error("the name cannot be empty")]
+    EmptyName,
+    #[error("the active profile cannot be deleted; switch to another profile first")]
+    ProfileActive,
     #[error("backup '{0}' not found or incomplete")]
     BackupNotFound(String),
     #[error("save folder {path} cannot be swapped: {reason}")]
@@ -75,6 +81,9 @@ impl AppError {
             AppError::NoAppDataDir => "no_app_data_dir",
             AppError::GameNotFound(_) => "game_not_found",
             AppError::ProfileNotFound(_) => "profile_not_found",
+            AppError::NameTaken(_) => "name_taken",
+            AppError::EmptyName => "empty_name",
+            AppError::ProfileActive => "profile_active",
             AppError::BackupNotFound(_) => "backup_not_found",
             AppError::InvalidSavePath { .. } => "invalid_save_path",
             AppError::OperationInProgress(_) => "operation_in_progress",

@@ -19,6 +19,8 @@ struct Fx {
     a: Uuid,
     b: Uuid,
     live: Vec<PathBuf>,
+    /// Save path ids, parallel to `live`.
+    ids: Vec<Uuid>,
 }
 
 impl Fx {
@@ -33,13 +35,8 @@ impl Fx {
         set_readonly(&live[1].join("settings.ini"));
 
         let mut game = Game::new("Test Game", GameSource::Manual);
-        game.save_paths = live
-            .iter()
-            .map(|p| SavePath {
-                template: p.display().to_string(),
-                resolved: p.clone(),
-            })
-            .collect();
+        game.save_paths = live.iter().map(|p| SavePath::new(p.display().to_string(), p)).collect();
+        let ids = game.save_paths.iter().map(|p| p.id).collect();
         let (a, b) = (Profile::new("Andrea"), Profile::new("Silvia"));
         let (a_id, b_id) = (a.id, b.id);
         game.active_profile_id = Some(a_id);
@@ -68,7 +65,16 @@ impl Fx {
             a: a_id,
             b: b_id,
             live,
+            ids,
         }
+    }
+
+    fn live_paths(&self) -> Vec<LivePath> {
+        self.ids
+            .iter()
+            .zip(&self.live)
+            .map(|(id, path)| LivePath { id: *id, path: path.clone() })
+            .collect()
     }
 
     fn switch(&self, to: Uuid) -> AppResult<()> {
@@ -84,8 +90,9 @@ impl Fx {
     }
 
     fn stored(&self, profile: Uuid) -> Vec<BTreeMapSnap> {
-        (0..self.live.len())
-            .map(|i| snapshot(&self.ctx.layout.profile_data_dir(self.game, profile, i)))
+        self.ids
+            .iter()
+            .map(|id| snapshot(&self.ctx.layout.profile_data_dir(self.game, profile, *id)))
             .collect()
     }
 
@@ -282,7 +289,7 @@ fn unreadable_target_file_rolls_back() {
     fx.switch(fx.a).unwrap();
     let live = fx.live_snapshot();
 
-    let stored = fx.ctx.layout.profile_data_dir(fx.game, fx.b, 0).join("silvia.sav");
+    let stored = fx.ctx.layout.profile_data_dir(fx.game, fx.b, fx.ids[0]).join("silvia.sav");
     let lock = open_locked(&stored, 0);
     let result = fx.switch(fx.b);
     drop(lock);
@@ -331,7 +338,7 @@ fn crash_journal(fx: &Fx, step: Step, backup: &str) -> Journal {
         from: fx.a,
         to: Some(fx.b),
         backup: backup.to_string(),
-        save_paths: fx.live.clone(),
+        save_paths: fx.live_paths(),
         step: Step::BackingUp,
         started_at: chrono::Utc::now(),
     };
@@ -387,9 +394,9 @@ fn recovery_of_crash_during_load_restores_live() {
         profile_id: fx.a,
         created_at: chrono::Utc::now(),
         reason: backup::BackupReason::Switch,
-        save_path_count: 2,
+        save_path_ids: fx.ids.clone(),
     };
-    backup::create(&fx.ctx.layout.backups_dir(fx.game).join(&name), &fx.live, &meta).unwrap();
+    backup::create(&fx.ctx.layout.backups_dir(fx.game).join(&name), &fx.live_paths(), &meta).unwrap();
     crash_journal(&fx, Step::Loading, &name);
     copy::clear_dir(&fx.live[0]).unwrap();
 

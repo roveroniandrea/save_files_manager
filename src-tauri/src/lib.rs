@@ -1,6 +1,8 @@
 mod commands;
 pub mod config;
 pub mod error;
+pub mod games;
+pub mod icons;
 pub mod paths;
 pub mod swap;
 
@@ -25,6 +27,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(paths)
         .manage(store)
         .manage(StartupRecovery(Mutex::new(recovered)))
@@ -35,6 +38,15 @@ pub fn run() {
             commands::list_backups,
             commands::restore_backup,
             commands::take_recovery_reports,
+            commands::add_game,
+            commands::update_game,
+            commands::remove_game,
+            commands::create_profile,
+            commands::rename_profile,
+            commands::delete_profile,
+            commands::profile_stats,
+            commands::get_icon,
+            commands::preview_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
