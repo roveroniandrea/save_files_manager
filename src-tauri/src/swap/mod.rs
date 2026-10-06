@@ -49,8 +49,12 @@ pub struct SwapContext {
 impl SwapContext {
     pub fn new(paths: &AppPaths, store: &ConfigStore) -> AppResult<Self> {
         let layout = paths.storage(&store.get()?.settings);
+        let mut protected = Guards::system_protected();
+        if let Some(steam) = crate::steam::Steam::locate() {
+            protected.extend(steam.protected_folders());
+        }
         let guards = Guards {
-            protected: Guards::system_protected(),
+            protected,
             reserved: vec![paths.app_dir().to_path_buf(), layout.root().to_path_buf()],
         };
         Ok(SwapContext { layout, guards })

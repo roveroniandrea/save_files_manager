@@ -51,6 +51,12 @@ pub enum AppError {
     LiveSavesEmpty(Vec<PathBuf>),
     #[error("{cause}; additionally, restoring the save folders failed ({rollback}). The backup is kept and recovery will be retried at startup")]
     RollbackFailed { cause: String, rollback: String },
+    #[error("'{0}' is already in the list")]
+    GameAlreadyAdded(String),
+    #[error("no Steam installation was found")]
+    SteamNotFound,
+    #[error("Steam app {0} is not installed")]
+    SteamAppNotFound(u32),
     #[error("{0}")]
     Other(String),
 }
@@ -89,6 +95,9 @@ impl AppError {
             AppError::OperationInProgress(_) => "operation_in_progress",
             AppError::LiveSavesEmpty(_) => "live_saves_empty",
             AppError::RollbackFailed { .. } => "rollback_failed",
+            AppError::GameAlreadyAdded(_) => "game_already_added",
+            AppError::SteamNotFound => "steam_not_found",
+            AppError::SteamAppNotFound(_) => "steam_app_not_found",
             AppError::Other(_) => "other",
         }
     }

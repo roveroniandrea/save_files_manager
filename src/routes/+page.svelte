@@ -4,11 +4,15 @@
   import GameDetail from "$lib/components/GameDetail.svelte";
   import GameEditor from "$lib/components/GameEditor.svelte";
   import GameIcon from "$lib/components/GameIcon.svelte";
+  import SteamPicker from "$lib/components/SteamPicker.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
+  import type { ScannedGame } from "$lib/types";
 
-  let adding = $state(false);
+  /** Add-game flow: pick a Steam game (or "other"), then the editor. */
+  type Adding = { step: "pick" } | { step: "manual" } | { step: "steam"; game: ScannedGame };
+  let adding = $state<Adding | null>(null);
 
   onMount(async () => {
     await app.load();
@@ -39,7 +43,7 @@
   <div class="layout">
     <nav>
       <div class="brand">{t("app.title")}</div>
-      <button class="primary add" onclick={() => (adding = true)} disabled={app.busy}>+ {t("library.add")}</button>
+      <button class="primary add" onclick={() => (adding = { step: "pick" })} disabled={app.busy}>+ {t("library.add")}</button>
       <ul>
         {#each games as game (game.id)}
           {@const active = game.profiles.find((p) => p.id === game.active_profile_id)}
@@ -71,8 +75,16 @@
   </div>
 {/if}
 
-{#if adding}
-  <GameEditor onclose={() => (adding = false)} />
+{#if adding?.step === "pick"}
+  <SteamPicker
+    onpick={(game) => (adding = { step: "steam", game })}
+    onmanual={() => (adding = { step: "manual" })}
+    onclose={() => (adding = null)}
+  />
+{:else if adding?.step === "manual"}
+  <GameEditor onclose={() => (adding = null)} />
+{:else if adding?.step === "steam"}
+  <GameEditor steam={adding.game} onclose={() => (adding = null)} />
 {/if}
 
 <Toasts />

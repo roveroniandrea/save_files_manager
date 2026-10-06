@@ -4,6 +4,7 @@ pub mod error;
 pub mod games;
 pub mod icons;
 pub mod paths;
+pub mod steam;
 pub mod swap;
 
 use std::sync::Mutex;
@@ -24,6 +25,12 @@ pub fn run() {
         Ok(config) => swap::recover_all(&store, &paths.storage(&config.settings)),
         Err(_) => Vec::new(),
     };
+    // Steam games moved to another library get their new install folder.
+    if let Some(steam) = store.get().ok().and_then(|_| steam::Steam::locate()) {
+        if let Err(e) = games::refresh_steam_install_dirs(&store, &steam.apps()) {
+            eprintln!("could not refresh Steam install folders: {e}");
+        }
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -47,6 +54,8 @@ pub fn run() {
             commands::profile_stats,
             commands::get_icon,
             commands::preview_icon,
+            commands::steam_scan,
+            commands::steam_cloud_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -6,12 +6,13 @@
     isAppError,
     profileStats,
     renameProfile,
+    steamCloudStatus,
     switchProfile,
   } from "$lib/api";
   import { formatBytes, formatDate } from "$lib/format";
   import { t, tn } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import type { Game, Profile, ProfileStats, Uuid } from "$lib/types";
+  import type { CloudStatus, Game, Profile, ProfileStats, Uuid } from "$lib/types";
   import GameEditor from "./GameEditor.svelte";
   import GameIcon from "./GameIcon.svelte";
   import RemoveGameDialog from "./RemoveGameDialog.svelte";
@@ -41,6 +42,25 @@
       cancelled = true;
     };
   });
+
+  // Steam Cloud warning (Steam games only); checked when the game is shown.
+  let cloud = $state<CloudStatus | null>(null);
+  $effect(() => {
+    if (game.source.kind !== "steam") return;
+    let cancelled = false;
+    steamCloudStatus(game.id)
+      .then((status) => {
+        if (!cancelled) cloud = status;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  const cloudAccounts = $derived(
+    cloud?.accounts.map((a) => a.persona_name ?? String(a.account_id)).join(", ") ?? "",
+  );
 
   const profiles = $derived(
     [...game.profiles].sort((a, b) =>
@@ -105,11 +125,22 @@
     <GameIcon {game} size={48} />
     <div class="title">
       <h1>{game.name}</h1>
-      <span class="muted">{tn("game.profileCount", game.profiles.length)}</span>
+      <span class="muted">
+        {tn("game.profileCount", game.profiles.length)}
+        {#if game.source.kind === "steam"}· {t("game.steamAppId", { appid: game.source.appid })}{/if}
+      </span>
     </div>
     <button onclick={() => (editing = true)} disabled={app.busy}>{t("game.edit")}</button>
     <button class="danger" onclick={() => (removing = true)} disabled={app.busy}>{t("game.remove")}</button>
   </header>
+
+  {#if cloud && cloud.accounts.length > 0}
+    <div class="warning" role="alert">
+      <strong>{t("cloud.title")}</strong>
+      <p>{t("cloud.body", { accounts: cloudAccounts })}</p>
+      <p>{t("cloud.howTo")}</p>
+    </div>
+  {/if}
 
   <div class="section-head">
     <h2>{t("game.profiles")}</h2>
@@ -202,6 +233,11 @@
 
   <h2>{t("game.executable")}</h2>
   <p class="path">{game.exe_path ?? t("game.noExecutable")}</p>
+
+  {#if game.source.kind === "steam"}
+    <h2>{t("game.installFolder")}</h2>
+    <p class="path">{game.source.install_dir}</p>
+  {/if}
 </section>
 
 {#if editing}
@@ -312,6 +348,15 @@
   .rename input {
     flex: 1;
     min-width: 0;
+  }
+  .warning {
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    border-radius: var(--radius);
+    background: var(--warning-bg);
+  }
+  .warning p {
+    margin: 4px 0 0;
   }
   .folders li {
     padding: 6px 0;

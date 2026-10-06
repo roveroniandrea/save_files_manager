@@ -6,7 +6,8 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 > Status: early development. See `docs/SPEC.md` for the full specification and `KNOWN_BUGS.md` for known issues.
 
 ## Features (planned for v1)
-- Auto-discovery of installed Steam games and their save locations (via the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest)).
+- Auto-discovery of installed Steam games (done) and their save locations (via the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest), planned).
+- Steam Cloud detection: a warning on games whose saves Steam Cloud syncs (it could overwrite swapped saves).
 - Manually add any game: exe, custom name and icon, one or more save folders.
 - Independent profiles per game: create fresh or cloned, rename, delete, switch.
 - Safe swaps: automatic backups before each swap, rollback on failure, blocked while the game is running.

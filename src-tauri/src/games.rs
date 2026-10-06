@@ -1,14 +1,15 @@
 //! Adding and editing games (config + icon). File operations on profile data
 //! live in `swap::manage`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::config::{clean_name, ConfigStore, Game, GameSource, Profile, SavePath};
 use crate::error::{AppError, AppResult};
-use crate::icons::{self, IconChoice};
+use crate::icons::{self, IconChoice, IconSources};
+use crate::steam::SteamApp;
 use crate::swap::{op_lock, validate, SwapContext};
 
 /// Editable fields of a game, as sent by the UI.
@@ -40,16 +41,24 @@ fn check_exe(exe: &Option<PathBuf>) -> AppResult<()> {
     }
 }
 
-/// Adds a manually configured game. Its current saves become the first
-/// profile (`first_profile`), which is active.
-pub fn add_manual_game(
+/// Adds a game (manual or Steam). Its current saves become the first profile
+/// (`first_profile`), which is active. `steam_icon` is Steam's cached library
+/// icon, used by [`IconChoice::Steam`].
+pub fn add_game(
     store: &ConfigStore,
     ctx: &SwapContext,
-    icons_dir: &std::path::Path,
+    icons_dir: &Path,
     input: GameInput,
     first_profile: &str,
+    source: GameSource,
+    steam_icon: Option<&Path>,
 ) -> AppResult<Game> {
-    let mut game = Game::new(clean_name(&input.name)?, GameSource::Manual);
+    if let GameSource::Steam { appid, .. } = source {
+        if let Some(existing) = store.get()?.games.iter().find(|g| steam_appid(g) == Some(appid)) {
+            return Err(AppError::GameAlreadyAdded(existing.name.clone()));
+        }
+    }
+    let mut game = Game::new(clean_name(&input.name)?, source);
     check_exe(&input.exe_path)?;
     game.exe_path = input.exe_path;
     game.backup_limit = input.backup_limit;
@@ -66,15 +75,25 @@ pub fn add_manual_game(
     game.profiles.push(profile);
     validate::live_paths(&game, &ctx.guards)?;
 
-    // Default for a new game: the exe's icon.
+    // Default for a new game: Steam's icon for Steam games, else the exe's icon.
     let choice = match input.icon {
+        IconChoice::Keep if steam_appid(&game).is_some() => IconChoice::Steam,
         IconChoice::Keep => IconChoice::Exe,
         other => other,
     };
-    game.icon = icons::apply(icons_dir, game.id, &choice, game.exe_path.as_deref(), None)?;
+    let sources = IconSources {
+        exe: game.exe_path.as_deref(),
+        steam: steam_icon,
+    };
+    game.icon = icons::apply(icons_dir, game.id, &choice, sources, None)?;
 
     let added = game.clone();
     if let Err(e) = store.update(|c| {
+        if let Some(appid) = steam_appid(&added) {
+            if let Some(existing) = c.games.iter().find(|g| steam_appid(g) == Some(appid)) {
+                return Err(AppError::GameAlreadyAdded(existing.name.clone()));
+            }
+        }
         c.games.push(added);
         Ok(())
     }) {
@@ -86,13 +105,15 @@ pub fn add_manual_game(
 
 /// Updates a game's name, exe, icon, backup limit and save paths. Save paths
 /// keep their id (and so their stored profile data) when edited; removed save
-/// paths' stored copies are kept in the profiles.
+/// paths' stored copies are kept in the profiles. The source (Steam app or
+/// manual) never changes.
 pub fn update_game(
     store: &ConfigStore,
     ctx: &SwapContext,
-    icons_dir: &std::path::Path,
+    icons_dir: &Path,
     game_id: Uuid,
     input: GameInput,
+    steam_icon: Option<&Path>,
 ) -> AppResult<Game> {
     let _lock = op_lock();
     let journal = ctx.layout.journal_file(game_id);
@@ -132,7 +153,11 @@ pub fn update_game(
     validate::live_paths(&game, &ctx.guards)?;
 
     let previous_icon = current.icon.clone();
-    game.icon = icons::apply(icons_dir, game_id, &input.icon, game.exe_path.as_deref(), previous_icon.as_deref())?;
+    let sources = IconSources {
+        exe: game.exe_path.as_deref(),
+        steam: steam_icon,
+    };
+    game.icon = icons::apply(icons_dir, game_id, &input.icon, sources, previous_icon.as_deref())?;
     let updated = game.clone();
     store.update(|c| {
         let g = c.game_mut(game_id).ok_or(AppError::GameNotFound(game_id))?;
@@ -140,6 +165,42 @@ pub fn update_game(
         Ok(())
     })?;
     Ok(game)
+}
+
+/// Updates the install folder of Steam games that Steam now reports elsewhere
+/// (moved to another library). Games Steam no longer lists are left as they
+/// are. Returns the number of games updated.
+pub fn refresh_steam_install_dirs(store: &ConfigStore, apps: &[SteamApp]) -> AppResult<usize> {
+    let _lock = op_lock();
+    let moved = |game: &Game| match &game.source {
+        GameSource::Steam { appid, install_dir } => apps
+            .iter()
+            .find(|a| a.appid == *appid && a.install_dir != *install_dir)
+            .map(|a| a.install_dir.clone()),
+        GameSource::Manual => None,
+    };
+    if !store.get()?.games.iter().any(|g| moved(g).is_some()) {
+        return Ok(0);
+    }
+    store.update(|c| {
+        let mut changed = 0;
+        for game in &mut c.games {
+            if let Some(new_dir) = moved(game) {
+                if let GameSource::Steam { install_dir, .. } = &mut game.source {
+                    *install_dir = new_dir;
+                    changed += 1;
+                }
+            }
+        }
+        Ok(changed)
+    })
+}
+
+pub fn steam_appid(game: &Game) -> Option<u32> {
+    match game.source {
+        GameSource::Steam { appid, .. } => Some(appid),
+        GameSource::Manual => None,
+    }
 }
 
 #[cfg(test)]
@@ -178,6 +239,16 @@ mod tests {
 
     fn new_path(p: PathBuf) -> SavePathInput {
         SavePathInput { id: None, path: p }
+    }
+
+    fn add_manual_game(
+        store: &ConfigStore,
+        ctx: &SwapContext,
+        icons: &Path,
+        input: GameInput,
+        first: &str,
+    ) -> AppResult<Game> {
+        add_game(store, ctx, icons, input, first, GameSource::Manual, None)
     }
 
     #[test]
@@ -233,6 +304,7 @@ mod tests {
             &icons,
             game.id,
             input("G", vec![SavePathInput { id: Some(keep_id), path: p2.clone() }]),
+            None,
         )
         .unwrap();
         assert_eq!(edited.save_paths.len(), 1);
@@ -250,7 +322,69 @@ mod tests {
             &icons,
             game.id,
             input("G", vec![SavePathInput { id: Some(Uuid::new_v4()), path: p2 }]),
+            None,
         )
         .is_err());
+    }
+
+    #[test]
+    fn steam_game_uses_steam_icon_and_is_added_once() {
+        let (tmp, store, ctx, icons) = setup();
+        let install = tmp.path().join("steamapps/common/NMS");
+        let cached = tmp.path().join("cache/fccb20f309ac5ae05b3cb4576a8a3357edf86f2e.jpg");
+        std::fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        std::fs::write(&cached, b"jpeg").unwrap();
+        let source = GameSource::Steam {
+            appid: 275850,
+            install_dir: install.clone(),
+        };
+        let live = tmp.path().join("saves");
+        let game = add_game(
+            &store,
+            &ctx,
+            &icons,
+            input("No Man's Sky", vec![new_path(live.clone())]),
+            "Andrea",
+            source.clone(),
+            Some(&cached),
+        )
+        .unwrap();
+        assert_eq!(game.source, source);
+        assert_eq!(std::fs::read(game.icon.as_ref().unwrap()).unwrap(), b"jpeg");
+
+        assert!(matches!(
+            add_game(&store, &ctx, &icons, input("Again", vec![new_path(live)]), "A", source.clone(), None),
+            Err(AppError::GameAlreadyAdded(name)) if name == "No Man's Sky"
+        ));
+        // A save folder must not contain the install folder.
+        let mut other = source;
+        if let GameSource::Steam { appid, .. } = &mut other {
+            *appid = 1;
+        }
+        assert!(matches!(
+            add_game(&store, &ctx, &icons, input("G", vec![new_path(tmp.path().join("steamapps"))]), "A", other, None),
+            Err(AppError::InvalidSavePath { .. })
+        ));
+        assert_eq!(store.get().unwrap().games.len(), 1);
+    }
+
+    #[test]
+    fn refreshes_moved_steam_install_dirs() {
+        let (tmp, store, ctx, icons) = setup();
+        let source = |dir: &str| GameSource::Steam {
+            appid: 10,
+            install_dir: tmp.path().join(dir),
+        };
+        add_game(&store, &ctx, &icons, input("G", vec![new_path(tmp.path().join("s"))]), "A", source("old"), None)
+            .unwrap();
+        let app = |dir: &str| SteamApp {
+            appid: 10,
+            name: "G".into(),
+            install_dir: tmp.path().join(dir),
+        };
+        assert_eq!(refresh_steam_install_dirs(&store, &[app("old")]).unwrap(), 0);
+        assert_eq!(refresh_steam_install_dirs(&store, &[]).unwrap(), 0);
+        assert_eq!(refresh_steam_install_dirs(&store, &[app("new")]).unwrap(), 1);
+        assert_eq!(store.get().unwrap().games[0].source, source("new"));
     }
 }

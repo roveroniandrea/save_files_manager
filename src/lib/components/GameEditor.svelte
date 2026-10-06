@@ -4,21 +4,28 @@
   import { addGame, getIcon, previewIcon, updateGame } from "$lib/api";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import type { Game, IconChoice, SavePathInput } from "$lib/types";
+  import type { Game, IconChoice, SavePathInput, ScannedGame } from "$lib/types";
   import Modal from "./Modal.svelte";
 
-  /** `game` set = edit mode, otherwise add mode. */
-  let { game, onclose }: { game?: Game; onclose: () => void } = $props();
+  /** `game` set = edit mode, otherwise add mode (`steam` set = adding that Steam game). */
+  let { game, steam, onclose }: { game?: Game; steam?: ScannedGame; onclose: () => void } = $props();
 
   // Snapshot of the game being edited: the form is not reset by config updates.
   const initial = untrack(() => (game ? $state.snapshot(game) : undefined));
+  const steamApp = untrack(() =>
+    initial?.source.kind === "steam"
+      ? { appid: initial.source.appid, install_dir: initial.source.install_dir }
+      : steam
+        ? { appid: steam.appid, install_dir: steam.install_dir }
+        : null,
+  );
 
-  let name = $state(initial?.name ?? "");
+  let name = $state(initial?.name ?? untrack(() => steam?.name) ?? "");
   let exePath = $state<string | null>(initial?.exe_path ?? null);
   let folders = $state<SavePathInput[]>(initial?.save_paths.map((p) => ({ id: p.id, path: p.resolved })) ?? []);
   let firstProfile = $state(t("editor.firstProfileDefault"));
   let backupLimit = $state<number | null>(initial?.backup_limit ?? null);
-  let icon = $state<IconChoice>(initial ? { kind: "keep" } : { kind: "exe" });
+  let icon = $state<IconChoice>(initial ? { kind: "keep" } : steamApp ? { kind: "steam" } : { kind: "exe" });
   let iconPreview = $state<string | null>(null);
 
   const defaultLimit = $derived(app.config?.settings.backup_limit ?? 5);
@@ -29,7 +36,11 @@
     const exe = exePath;
     let cancelled = false;
     const load =
-      choice.kind === "keep" && initial ? getIcon(initial.id) : choice.kind === "none" ? null : previewIcon(choice, exe);
+      choice.kind === "keep" && initial
+        ? getIcon(initial.id)
+        : choice.kind === "none"
+          ? null
+          : previewIcon(choice, exe, steamApp?.appid ?? null);
     if (!load) {
       iconPreview = null;
       return;
@@ -88,7 +99,9 @@
       icon: $state.snapshot(icon),
     };
     const before = new Set(app.config?.games.map((g) => g.id));
-    const ok = await app.run(() => (initial ? updateGame(initial.id, input) : addGame(input, firstProfile)));
+    const ok = await app.run(() =>
+      initial ? updateGame(initial.id, input) : addGame(input, firstProfile, steamApp?.appid ?? null),
+    );
     if (ok) {
       if (!initial) app.selectedId = app.config?.games.find((g) => !before.has(g.id))?.id ?? app.selectedId;
       onclose();
@@ -102,6 +115,14 @@
       {t("editor.name")}
       <input type="text" bind:value={name} required />
     </label>
+
+    {#if steamApp}
+      <div class="field">
+        <span>{t("editor.steamApp")}</span>
+        <span class="muted">{t("game.steamAppId", { appid: steamApp.appid })}</span>
+        <span class="path muted">{steamApp.install_dir}</span>
+      </div>
+    {/if}
 
     <div class="field">
       <span>{t("editor.executable")}</span>
@@ -127,6 +148,12 @@
               {t("editor.iconKeep")}
             </label>
           {/if}
+          {#if steamApp}
+            <label class="inline">
+              <input type="radio" checked={icon.kind === "steam"} onchange={() => (icon = { kind: "steam" })} />
+              {t("editor.iconSteam")}
+            </label>
+          {/if}
           <label class="inline">
             <input
               type="radio"
@@ -150,6 +177,7 @@
     <div class="field">
       <span>{t("editor.saveFolders")}</span>
       <p class="muted hint">{t("editor.saveFoldersHint")}</p>
+      {#if steamApp && !initial}<p class="muted hint">{t("editor.steamFoldersHint")}</p>{/if}
       {#each folders as folder, i (folder.id ?? folder.path)}
         <div class="row folder">
           <button type="button" class="path grow link" onclick={() => changeFolder(i)}>{folder.path}</button>

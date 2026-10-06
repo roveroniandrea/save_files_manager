@@ -8,11 +8,12 @@ use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
 
-use crate::config::{Config, ConfigStore, Settings};
+use crate::config::{Config, ConfigStore, GameSource, Settings};
 use crate::error::{AppError, AppResult};
 use crate::games::{self, GameInput};
-use crate::icons::{self, IconChoice};
+use crate::icons::{self, IconChoice, IconSources};
 use crate::paths::AppPaths;
+use crate::steam::{CloudStatus, Steam, SteamScan};
 use crate::swap::manage::{self, NewProfileSource, ProfileStats};
 use crate::swap::{self, backup::BackupInfo, RecoveryReport, SwapContext, SwapOptions};
 use crate::StartupRecovery;
@@ -75,15 +76,38 @@ pub fn take_recovery_reports(recovery: State<'_, StartupRecovery>) -> Vec<Recove
     std::mem::take(&mut *recovery.0.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
+/// Adds a game; `steam_appid` set = a Steam game (its install folder is read
+/// from Steam, not trusted from the UI).
 #[tauri::command(async)]
 pub fn add_game(
     paths: State<'_, AppPaths>,
     store: State<'_, ConfigStore>,
     input: GameInput,
     first_profile_name: String,
+    steam_appid: Option<u32>,
 ) -> AppResult<Config> {
     let ctx = SwapContext::new(&paths, &store)?;
-    games::add_manual_game(&store, &ctx, &paths.icons_dir(), input, &first_profile_name)?;
+    let (source, steam_icon) = match steam_appid {
+        None => (GameSource::Manual, None),
+        Some(appid) => {
+            let steam = Steam::locate().ok_or(AppError::SteamNotFound)?;
+            let app = steam.app(appid).ok_or(AppError::SteamAppNotFound(appid))?;
+            let source = GameSource::Steam {
+                appid,
+                install_dir: app.install_dir,
+            };
+            (source, steam.library_icon(appid))
+        }
+    };
+    games::add_game(
+        &store,
+        &ctx,
+        &paths.icons_dir(),
+        input,
+        &first_profile_name,
+        source,
+        steam_icon.as_deref(),
+    )?;
     store.get()
 }
 
@@ -95,7 +119,9 @@ pub fn update_game(
     input: GameInput,
 ) -> AppResult<Config> {
     let ctx = SwapContext::new(&paths, &store)?;
-    games::update_game(&store, &ctx, &paths.icons_dir(), game_id, input)?;
+    let appid = store.get()?.game(game_id).and_then(games::steam_appid);
+    let steam_icon = appid.and_then(steam_library_icon);
+    games::update_game(&store, &ctx, &paths.icons_dir(), game_id, input, steam_icon.as_deref())?;
     store.get()
 }
 
@@ -171,6 +197,33 @@ pub fn get_icon(store: State<'_, ConfigStore>, game_id: Uuid) -> AppResult<Optio
 
 /// Preview of an icon choice in the game editor, before saving.
 #[tauri::command(async)]
-pub fn preview_icon(choice: IconChoice, exe_path: Option<PathBuf>) -> AppResult<Option<String>> {
-    icons::preview(&choice, exe_path.as_deref())
+pub fn preview_icon(
+    choice: IconChoice,
+    exe_path: Option<PathBuf>,
+    steam_appid: Option<u32>,
+) -> AppResult<Option<String>> {
+    let steam_icon = steam_appid.and_then(steam_library_icon);
+    let sources = IconSources {
+        exe: exe_path.as_deref(),
+        steam: steam_icon.as_deref(),
+    };
+    icons::preview(&choice, sources)
+}
+
+fn steam_library_icon(appid: u32) -> Option<PathBuf> {
+    Steam::locate()?.library_icon(appid)
+}
+
+/// Installed Steam games (`root: null` if Steam is not installed).
+#[tauri::command(async)]
+pub fn steam_scan() -> SteamScan {
+    Steam::locate().map(|s| s.scan()).unwrap_or_default()
+}
+
+/// Steam Cloud status of a Steam game (`null` for other games or without Steam).
+#[tauri::command(async)]
+pub fn steam_cloud_status(store: State<'_, ConfigStore>, game_id: Uuid) -> AppResult<Option<CloudStatus>> {
+    let config = store.get()?;
+    let game = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
+    Ok(games::steam_appid(game).and_then(|appid| Some(Steam::locate()?.cloud_status(appid))))
 }

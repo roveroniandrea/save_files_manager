@@ -23,6 +23,23 @@ export const en = {
   "game.noExecutable": "Not set",
   "game.profileCount_one": "{count} profile",
   "game.profileCount_other": "{count} profiles",
+  "game.steamAppId": "Steam app {appid}",
+  "game.installFolder": "Install folder",
+
+  "steam.pickTitle": "Add game",
+  "steam.scanning": "Looking for installed Steam games…",
+  "steam.notFound": "Steam was not found on this PC. You can still add any game with “Other game…”.",
+  "steam.noGames": "No installed Steam games were found.",
+  "steam.search": "Search installed Steam games",
+  "steam.noMatch": "No game matches the search.",
+  "steam.alreadyAdded": "Already added",
+  "steam.otherGame": "Other game…",
+
+  "cloud.title": "Steam Cloud is on for this game",
+  "cloud.body":
+    "Steam Cloud keeps a copy of the saves of {accounts} and syncs it when the game starts or closes. After a profile switch, Steam may overwrite the swapped saves with its cloud copy, or ask which copy to keep — choose the local one.",
+  "cloud.howTo":
+    "To avoid this, turn cloud saves off for this game: in the Steam library right-click the game → Properties → General → turn off “Keep game saves in the Steam Cloud”.",
 
   "profile.active": "Active",
   "profile.switch": "Switch to this profile",
@@ -56,6 +73,10 @@ export const en = {
   "editor.icon": "Icon",
   "editor.iconKeep": "Current",
   "editor.iconExe": "From the executable",
+  "editor.iconSteam": "From Steam",
+  "editor.steamApp": "Steam game",
+  "editor.steamFoldersHint":
+    "Save folders are not detected automatically yet: add them yourself (PCGamingWiki lists them for most games).",
   "editor.iconCustom": "Image…",
   "editor.iconNone": "None",
   "editor.saveFolders": "Save folders",
@@ -105,6 +126,9 @@ export const en = {
     "The game's save folder is empty, but the active profile has saved data. Continuing will replace that data with an empty folder.",
   "error.rollback_failed":
     "The operation failed and the save folders could not be restored automatically. Your data is safe in the backup; recovery will be retried when the app starts.",
+  "error.game_already_added": "This game is already in the list.",
+  "error.steam_not_found": "Steam was not found on this PC.",
+  "error.steam_app_not_found": "This Steam game is not installed (anymore).",
   "error.other": "Something went wrong.",
   "error.unknown": "Unexpected error.",
 } as const;

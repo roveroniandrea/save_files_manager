@@ -1,5 +1,5 @@
-//! Game icons: extracted from the exe (Windows shell API → PNG) or a custom
-//! image chosen by the user. Stored as `icons/<game-id>.<ext>` in the app dir
+//! Game icons: extracted from the exe (Windows shell API → PNG), Steam's
+//! library icon, or a custom image chosen by the user. Stored as `icons/<game-id>.<ext>` in the app dir
 //! and sent to the UI as `data:` URLs (no file-system scope needed).
 
 use std::fs;
@@ -23,6 +23,8 @@ pub enum IconChoice {
     Keep,
     /// Use the icon embedded in the game's exe.
     Exe,
+    /// Use Steam's cached library icon (Steam games).
+    Steam,
     /// Use an image file (png, jpg, gif, webp, bmp, ico).
     Custom { path: PathBuf },
     /// No icon.
@@ -63,27 +65,37 @@ pub fn data_url(path: &Path) -> AppResult<String> {
     Ok(to_data_url(mime, &bytes))
 }
 
+/// Where an icon can come from: the game's exe and Steam's library icon.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IconSources<'a> {
+    pub exe: Option<&'a Path>,
+    pub steam: Option<&'a Path>,
+}
+
 /// Preview of a choice before it is saved (`None` = no icon available).
-pub fn preview(choice: &IconChoice, exe: Option<&Path>) -> AppResult<Option<String>> {
+pub fn preview(choice: &IconChoice, sources: IconSources) -> AppResult<Option<String>> {
     match choice {
-        IconChoice::Exe => Ok(exe
+        IconChoice::Exe => Ok(sources
+            .exe
             .and_then(|exe| exe_icon_png(exe).ok())
             .map(|png| to_data_url("image/png", &png))),
+        IconChoice::Steam => Ok(sources.steam.and_then(|icon| data_url(icon).ok())),
         IconChoice::Custom { path } => data_url(path).map(Some),
         IconChoice::Keep | IconChoice::None => Ok(None),
     }
 }
 
 /// Applies `choice` for `game_id`; returns the new icon path. The previous
-/// icon file is removed once the new one is written. A missing exe icon is not
-/// an error (the game simply has no icon).
+/// icon file is removed once the new one is written. A missing exe or Steam
+/// icon is not an error (the game simply has no icon).
 pub fn apply(
     icons_dir: &Path,
     game_id: Uuid,
     choice: &IconChoice,
-    exe: Option<&Path>,
+    sources: IconSources,
     current: Option<&Path>,
 ) -> AppResult<Option<PathBuf>> {
+    let exe = sources.exe;
     let (bytes, ext) = match choice {
         IconChoice::Keep => return Ok(current.map(Path::to_path_buf)),
         IconChoice::None => {
@@ -102,11 +114,16 @@ pub fn apply(
                 return Ok(None);
             }
         },
+        IconChoice::Steam => match sources.steam.map(|p| check_image(p).and_then(|_| read_image(p))) {
+            Some(Ok(image)) => image,
+            _ => {
+                remove(current);
+                return Ok(None);
+            }
+        },
         IconChoice::Custom { path } => {
             check_image(path)?;
-            let bytes = fs::read(path).map_err(|e| AppError::io(path, e))?;
-            let ext = path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
-            (bytes, ext)
+            read_image(path)?
         }
     };
     fs::create_dir_all(icons_dir).map_err(|e| AppError::io(icons_dir, e))?;
@@ -116,6 +133,12 @@ pub fn apply(
         remove(current);
     }
     Ok(Some(target))
+}
+
+fn read_image(path: &Path) -> AppResult<(Vec<u8>, String)> {
+    let bytes = fs::read(path).map_err(|e| AppError::io(path, e))?;
+    let ext = path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+    Ok((bytes, ext))
 }
 
 /// Deletes an icon file (best effort).
@@ -274,19 +297,20 @@ mod tests {
         fs::write(&image, b"jpeg bytes").unwrap();
         let game = Uuid::new_v4();
 
-        let icon = apply(&icons, game, &IconChoice::Custom { path: image.clone() }, None, None)
+        let none = IconSources::default();
+        let icon = apply(&icons, game, &IconChoice::Custom { path: image.clone() }, none, None)
             .unwrap()
             .unwrap();
         assert_eq!(icon, icons.join(format!("{game}.jpg")));
         assert!(data_url(&icon).unwrap().starts_with("data:image/jpeg;base64,"));
 
-        assert_eq!(apply(&icons, game, &IconChoice::Keep, None, Some(&icon)).unwrap(), Some(icon.clone()));
-        assert_eq!(apply(&icons, game, &IconChoice::None, None, Some(&icon)).unwrap(), None);
+        assert_eq!(apply(&icons, game, &IconChoice::Keep, none, Some(&icon)).unwrap(), Some(icon.clone()));
+        assert_eq!(apply(&icons, game, &IconChoice::None, none, Some(&icon)).unwrap(), None);
         assert!(!icon.exists());
 
         let bad = tmp.path().join("notes.txt");
         fs::write(&bad, b"x").unwrap();
-        assert!(apply(&icons, game, &IconChoice::Custom { path: bad }, None, None).is_err());
+        assert!(apply(&icons, game, &IconChoice::Custom { path: bad }, none, None).is_err());
     }
 
     #[test]
@@ -294,7 +318,30 @@ mod tests {
         let tmp = tempdir().unwrap();
         let exe = tmp.path().join("not-an-exe.exe");
         fs::write(&exe, b"nope").unwrap();
-        let icon = apply(&tmp.path().join("icons"), Uuid::new_v4(), &IconChoice::Exe, Some(&exe), None).unwrap();
-        assert_eq!(icon, None);
+        let sources = IconSources {
+            exe: Some(&exe),
+            steam: None,
+        };
+        let icons = tmp.path().join("icons");
+        assert_eq!(apply(&icons, Uuid::new_v4(), &IconChoice::Exe, sources, None).unwrap(), None);
+        assert_eq!(apply(&icons, Uuid::new_v4(), &IconChoice::Steam, sources, None).unwrap(), None);
+    }
+
+    #[test]
+    fn steam_icon_is_copied() {
+        let tmp = tempdir().unwrap();
+        let cached = tmp.path().join("fccb20f309ac5ae05b3cb4576a8a3357edf86f2e.jpg");
+        fs::write(&cached, b"jpeg").unwrap();
+        let sources = IconSources {
+            exe: None,
+            steam: Some(&cached),
+        };
+        let game = Uuid::new_v4();
+        let icon = apply(&tmp.path().join("icons"), game, &IconChoice::Steam, sources, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(icon.file_name().unwrap().to_string_lossy(), format!("{game}.jpg"));
+        assert_eq!(fs::read(&icon).unwrap(), b"jpeg");
+        assert!(preview(&IconChoice::Steam, sources).unwrap().unwrap().starts_with("data:image/jpeg"));
     }
 }

@@ -83,6 +83,7 @@ export interface RecoveryReport {
 export type IconChoice =
   | { kind: "keep" }
   | { kind: "exe" }
+  | { kind: "steam" }
   | { kind: "custom"; path: string }
   | { kind: "none" };
 
@@ -107,4 +108,29 @@ export interface ProfileStats {
   profile_id: Uuid;
   size_bytes: number;
   last_modified: Timestamp | null;
+}
+
+/** An installed Steam game (`steam::ScannedGame`). */
+export interface ScannedGame {
+  appid: number;
+  name: string;
+  install_dir: string;
+  /** Steam library icon as a `data:` URL. */
+  icon: string | null;
+}
+
+export interface SteamScan {
+  /** Steam install folder; null when Steam was not found. */
+  root: string | null;
+  games: ScannedGame[];
+}
+
+export interface CloudAccount {
+  account_id: number;
+  persona_name: string | null;
+}
+
+export interface CloudStatus {
+  /** Steam accounts on this PC whose Steam Cloud syncs this game's saves. */
+  accounts: CloudAccount[];
 }

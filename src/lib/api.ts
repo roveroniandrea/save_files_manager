@@ -4,6 +4,7 @@ import { hasKey, t } from "./i18n";
 import type {
   AppError,
   BackupInfo,
+  CloudStatus,
   Config,
   GameInput,
   IconChoice,
@@ -11,6 +12,7 @@ import type {
   ProfileStats,
   RecoveryReport,
   Settings,
+  SteamScan,
   SwapOptions,
   Uuid,
 } from "./types";
@@ -31,8 +33,9 @@ export const restoreBackup = (gameId: Uuid, backupId: string) =>
 /** Startup crash-recovery results; returned only once per app run. */
 export const takeRecoveryReports = () => invoke<RecoveryReport[]>("take_recovery_reports");
 
-export const addGame = (input: GameInput, firstProfileName: string) =>
-  invoke<Config>("add_game", { input, firstProfileName });
+/** Adds a game; `steamAppid` set = an installed Steam game. */
+export const addGame = (input: GameInput, firstProfileName: string, steamAppid: number | null = null) =>
+  invoke<Config>("add_game", { input, firstProfileName, steamAppid });
 
 export const updateGame = (gameId: Uuid, input: GameInput) =>
   invoke<Config>("update_game", { gameId, input });
@@ -55,8 +58,14 @@ export const profileStats = (gameId: Uuid) => invoke<ProfileStats[]>("profile_st
 /** The game's icon as a `data:` URL, or null. */
 export const getIcon = (gameId: Uuid) => invoke<string | null>("get_icon", { gameId });
 
-export const previewIcon = (choice: IconChoice, exePath: string | null) =>
-  invoke<string | null>("preview_icon", { choice, exePath });
+export const previewIcon = (choice: IconChoice, exePath: string | null, steamAppid: number | null = null) =>
+  invoke<string | null>("preview_icon", { choice, exePath, steamAppid });
+
+/** Installed Steam games (tools filtered out). */
+export const steamScan = () => invoke<SteamScan>("steam_scan");
+
+/** Steam Cloud status of a Steam game; null for other games or without Steam. */
+export const steamCloudStatus = (gameId: Uuid) => invoke<CloudStatus | null>("steam_cloud_status", { gameId });
 
 export function isAppError(e: unknown): e is AppError {
   return !!e && typeof e === "object" && "kind" in e && "message" in e;

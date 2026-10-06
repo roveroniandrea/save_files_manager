@@ -18,8 +18,10 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
 
 ## Functional requirements
 1. **Library**
-   - Scan Steam installs: read `SteamPath` from registry `HKCU\Software\Valve\Steam`, parse `steamapps/libraryfolders.vdf` → each library's `appmanifest_*.acf` (appid, name, installdir). Hide tools/redistributables (Steamworks Common Redistributables, Proton, etc.).
-   - User chooses which discovered games to **add** (not all installed games are auto-tracked).
+   - Scan Steam installs: read `SteamPath` from registry `HKCU\Software\Valve\Steam` (fallback `%ProgramFiles(x86)%\Steam`), parse `steamapps/libraryfolders.vdf` → each library's `appmanifest_*.acf` (appid, name, installdir). Hide tools/redistributables (Steamworks Common Redistributables, Proton, Steam Linux Runtime, SteamVR).
+   - User chooses which discovered games to **add** (not all installed games are auto-tracked): "Add game" opens a searchable list of installed Steam games (already added ones are disabled) with an "Other game…" button for manual games. A Steam game is added through the same editor (name prefilled, appid and install folder shown read-only); its install folder is read from Steam by the backend, never taken from the UI. A Steam appid can be added only once.
+   - Steam game icon: by default Steam's cached library icon (`appcache/librarycache/<appid>/<sha1>.jpg`, or the older `<appid>_icon.jpg`; 32×32), copied to `icons/`. The exe icon or a custom image can be chosen instead.
+   - At startup, Steam games whose install folder moved to another library get the new folder (games no longer installed keep the old one).
    - **Add manual game**: pick exe (optional, file dialog; the name defaults to the exe name), set name, icon (default = extracted from exe as a 256px PNG; or a custom png/jpg/gif/webp/bmp/ico ≤ 5 MB; or none), one or more save folders, name of the first profile. Save folders pass the safety checks (see swap algorithm) when the game is saved, not only at swap time.
    - **Edit game**: rename, change icon, change exe, add/remove/relocate save paths, backup limit. Each save path has a stable id, and profile data is stored per save path id: relocating a folder keeps its data, adding one gives the other profiles an empty copy of it (they start fresh for that folder), removing one keeps its stored copies in the profiles (never deleted implicitly). Blocked while an operation is in progress.
    - **Remove game** from app: option to keep or delete stored profile data (default keep → moved to `games/_orphaned/<game-id>_<timestamp>`). The live save folders are never touched. The icon file is deleted.
@@ -39,7 +41,7 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
 4. **Play**: button launches the game (Steam: `steam://rungameid/<appid>` via opener; manual: spawn exe with working dir = exe dir). Profile selector next to Play does "switch then launch".
 5. **Safety**
    - Block swap if the game process is running (match by exe path via `sysinfo`; for Steam games, any process whose exe lives under the install dir).
-   - Warn if Steam Cloud is enabled for the game (heuristic: `userdata/<id>/<appid>/remote` exists and/or `remotecache.vdf` present; per-app `CloudEnabled` in `localconfig.vdf` if present). Warning text explains Steam may overwrite swapped saves and how to disable cloud per game.
+   - Warn if Steam Cloud is enabled for the game. Heuristic, per Steam account (`userdata/<account-id>`): `<appid>/remotecache.vdf` exists or `<appid>/remote` is non-empty, unless `CloudEnabled "0"` is set for the app (`apps/<appid>`) or globally (directly under `Software/Valve/Steam`) in `7/remote/sharedconfig.vdf` or `config/localconfig.vdf`. The game page shows a banner naming the accounts, explaining Steam may overwrite swapped saves and how to disable cloud saves for the game.
    - Pre-swap backup snapshot; restore-from-backup UI (list backups with timestamp, restore into live = itself a guarded swap).
    - Detect **drift**: if the live folder was changed outside the app since last swap, that's normal (game played); but if live content is missing/empty unexpectedly, warn before overwriting the active profile's store.
 6. **Settings**: storage root (default `%APPDATA%\SaveFilesManager`), default backup limit, manifest refresh, include `config` tagged paths, theme (system/light/dark).
@@ -49,7 +51,7 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
 For game G, switching active profile A → B, with save paths P1..Pn (implemented in `src-tauri/src/swap/`):
 1. **Preconditions** (nothing is written if they fail): B ≠ A (same profile = no-op), B exists, game not running *(M7)*, and every Pi passes the **save path safety checks**:
    - absolute, not a drive root, no Pi nested in another;
-   - not equal to and not containing a protected folder (user home, Documents, Desktop, Downloads, Pictures, Videos, Music, Public, `%APPDATA%`, `%LOCALAPPDATA%`, ProgramData, Program Files, Windows, the Steam install dir, the exe's folder); being *inside* one is fine;
+   - not equal to and not containing a protected folder (user home, Documents, Desktop, Downloads, Pictures, Videos, Music, Public, `%APPDATA%`, `%LOCALAPPDATA%`, ProgramData, Program Files, Windows, the Steam install dir, `Steam\userdata` and each account folder in it, every Steam library with its `steamapps` and `steamapps\common` folders, the game's install dir, the exe's folder); being *inside* one is fine;
    - no overlap at all with the app dir or the storage root.
 2. **Empty-live check**: if a live Pi is empty/missing while A's stored copy of Pi has data → error `live_saves_empty`; the UI asks for confirmation and retries with `allow_empty_live`.
 3. Create the **journal** `games/<id>/swap.journal.json` (exclusive create → acts as a per-game lock; an existing journal → `operation_in_progress`). It holds operation, from, to, backup name, the live paths and the current step, so recovery never depends on the config.
