@@ -11,6 +11,7 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 - Independent profiles per game: create fresh or cloned, rename, delete, switch.
 - Safe swaps: automatic backups before each swap, rollback on failure, blocked while the game is running.
 - Launch the game directly with the chosen profile.
+- Multilingual UI: English first, Italian planned.
 
 ## Development
 Prerequisites: [Node.js](https://nodejs.org/) 20+, [Rust](https://www.rust-lang.org/tools/install) (stable, MSVC toolchain) and the [Tauri prerequisites for Windows](https://tauri.app/start/prerequisites/) (WebView2, MSVC Build Tools).

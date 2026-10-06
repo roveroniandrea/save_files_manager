@@ -20,5 +20,6 @@ Save Files Manager: a lightweight Windows desktop app that keeps **per-game save
 - **Write down known bugs in `KNOWN_BUGS.md`.** Every bug or limitation that is discovered but not fixed gets an entry (ID, description, repro, workaround, status). When a bug is fixed, mark it fixed (or remove it) and mention the fix in `CHANGELOG.md`.
 - Keep Windows/Steam-specific code isolated (`src-tauri/src/steam/`, `icons.rs`, `process.rs`) so other platforms/stores can be added later.
 - The swap engine (`src-tauri/src/swap/`) must never lose data: every change needs unit tests, and tests must only touch temp dirs (`tempfile`), never real save folders.
+- **No hard-coded UI strings.** Every user-visible text goes through `t()`/`tn()` from `src/lib/i18n` with a key in `src/lib/i18n/en.ts` (English only for now; Italian is the final milestone). Backend errors are shown via their `kind` (`error.<kind>` keys).
 - Tauri commands stay thin (`commands.rs`); logic lives in testable modules.
 - Profiles are stored by id, never by name (renames must not move data).

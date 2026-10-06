@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
+use uuid::Uuid;
 
 /// Application-wide error type. Serialized to the UI as `{ kind, message }`.
 #[derive(Debug, thiserror::Error)]
@@ -28,8 +29,32 @@ pub enum AppError {
     InvalidConfig(String),
     #[error("could not determine the user's application data directory")]
     NoAppDataDir,
+    #[error("game {0} not found")]
+    GameNotFound(Uuid),
+    #[error("profile {0} not found")]
+    ProfileNotFound(Uuid),
+    #[error("backup '{0}' not found or incomplete")]
+    BackupNotFound(String),
+    #[error("save folder {path} cannot be swapped: {reason}")]
+    InvalidSavePath { path: PathBuf, reason: String },
+    #[error("another operation on this game is in progress or needs recovery ({0} exists)")]
+    OperationInProgress(PathBuf),
+    /// The live save folder(s) are empty while the active profile has stored
+    /// data; the UI asks for confirmation and retries with `allow_empty_live`.
+    #[error("live save folder(s) are empty but the active profile has stored data: {}", display_paths(.0))]
+    LiveSavesEmpty(Vec<PathBuf>),
+    #[error("{cause}; additionally, restoring the save folders failed ({rollback}). The backup is kept and recovery will be retried at startup")]
+    RollbackFailed { cause: String, rollback: String },
     #[error("{0}")]
     Other(String),
+}
+
+fn display_paths(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl AppError {
@@ -48,6 +73,13 @@ impl AppError {
             AppError::UnsupportedConfigVersion { .. } => "unsupported_config_version",
             AppError::InvalidConfig(_) => "invalid_config",
             AppError::NoAppDataDir => "no_app_data_dir",
+            AppError::GameNotFound(_) => "game_not_found",
+            AppError::ProfileNotFound(_) => "profile_not_found",
+            AppError::BackupNotFound(_) => "backup_not_found",
+            AppError::InvalidSavePath { .. } => "invalid_save_path",
+            AppError::OperationInProgress(_) => "operation_in_progress",
+            AppError::LiveSavesEmpty(_) => "live_saves_empty",
+            AppError::RollbackFailed { .. } => "rollback_failed",
             AppError::Other(_) => "other",
         }
     }

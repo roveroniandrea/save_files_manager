@@ -52,3 +52,28 @@ export interface AppError {
   kind: string;
   message: string;
 }
+
+export interface SwapOptions {
+  /** Proceed although live save folders are empty (after `live_saves_empty`). */
+  allow_empty_live?: boolean;
+}
+
+export type BackupReason = "switch" | "restore";
+
+export interface BackupInfo {
+  /** Folder name, used as id. */
+  id: string;
+  profile_id: Uuid;
+  created_at: Timestamp;
+  reason: BackupReason;
+  save_path_count: number;
+}
+
+export type RecoveryOutcome = "rolled_back" | "completed" | "failed";
+
+export interface RecoveryReport {
+  game_id: Uuid;
+  game_name: string | null;
+  outcome: RecoveryOutcome;
+  error: string | null;
+}

@@ -42,19 +42,27 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
    - Pre-swap backup snapshot; restore-from-backup UI (list backups with timestamp, restore into live = itself a guarded swap).
    - Detect **drift**: if the live folder was changed outside the app since last swap, that's normal (game played); but if live content is missing/empty unexpectedly, warn before overwriting the active profile's store.
 6. **Settings**: storage root (default `%APPDATA%\SaveFilesManager`), default backup limit, manifest refresh, include `config` tagged paths, theme (system/light/dark).
+7. **Languages (i18n)**: the UI is multilingual. Every user-visible string lives in a message catalog (`src/lib/i18n/`), never hard-coded in components. English is the only language until the final milestone, which adds **Italian** plus a language setting (system/English/Italian; "system" follows the OS locale, falling back to English). Backend errors carry a stable `kind` that the UI translates; the backend `message` is English technical detail.
 
 ## Swap algorithm (core, Rust, unit-tested)
-For game G, switching active profile A → B, with save paths P1..Pn:
-1. Preconditions: B ≠ A, game not running, all Pi parent dirs accessible.
-2. Write a **journal** `games/<id>/swap.journal.json` {from A, to B, step, timestamp}.
-3. **Backup**: copy every live Pi → `games/<id>/backups/<timestamp>_<A>/<i>/`. Prune to N.
-4. **Store A**: copy live Pi → `games/<id>/profiles/<A>/staging/<i>`, then atomically replace `profiles/<A>/data/<i>` (rename staging→data, old→trash, delete trash).
-5. **Load B**: clear live Pi contents, copy `profiles/<B>/data/<i>` → Pi (if B is fresh/has no data for i, leave Pi empty but existing).
-6. Update `active_profile = B` in config, save config atomically (write tmp + rename), delete journal.
-7. On any error in 4–5: restore live Pi from the step-3 backup, keep A active, surface error.
-8. On app startup, if a journal exists → offer "recover" (restore backup, keep `from` active).
+For game G, switching active profile A → B, with save paths P1..Pn (implemented in `src-tauri/src/swap/`):
+1. **Preconditions** (nothing is written if they fail): B ≠ A (same profile = no-op), B exists, game not running *(M7)*, and every Pi passes the **save path safety checks**:
+   - absolute, not a drive root, no Pi nested in another;
+   - not equal to and not containing a protected folder (user home, Documents, Desktop, Downloads, Pictures, Videos, Music, Public, `%APPDATA%`, `%LOCALAPPDATA%`, ProgramData, Program Files, Windows, the Steam install dir, the exe's folder); being *inside* one is fine;
+   - no overlap at all with the app dir or the storage root.
+2. **Empty-live check**: if a live Pi is empty/missing while A's stored copy of Pi has data → error `live_saves_empty`; the UI asks for confirmation and retries with `allow_empty_live`.
+3. Create the **journal** `games/<id>/swap.journal.json` (exclusive create → acts as a per-game lock; an existing journal → `operation_in_progress`). It holds operation, from, to, backup name, the live paths and the current step, so recovery never depends on the config.
+4. **Backup** (step `backing_up`): copy every live Pi → `backups/<yyyymmddThhmmssmmmZ>_<A>/<i>/`, then write `backup.json` (marks it complete).
+5. **Store A** (step `storing`): copy the backup → `profiles/<A>/staging/<i>`, rename `data`→`trash`, `staging`→`data`, delete `trash`.
+6. **Load B** (step `loading`): for each Pi, delete its contents (the folder itself is kept, created if missing) and copy `profiles/<B>/data/<i>` in (B fresh → Pi stays empty).
+7. Step `loaded`; set `active_profile_id = B` and `last_used_at` of A and B in config (atomic save; aborts if the active profile changed meanwhile).
+8. Delete the journal, prune complete backups to the game's limit (default 5). Failures here are not errors (see recovery of `loaded`).
+- **On any error in 4–7**: undo according to the step — `backing_up`: delete the partial backup; `storing`: repair A's store (`trash`→`data` if `data` is missing, delete `staging`/`trash`); `loading`/`loaded`: restore every Pi from the backup (journal reset to `loading` first). Then delete the journal and surface the original error; A stays active. If the undo itself fails → error `rollback_failed`, the journal and backup are kept.
+- **Startup recovery** (automatic, before the UI can start operations; reported once to the UI): every `games/*/swap.journal.json` is undone as above and `from` is made active — except step `loaded`, which is **completed** instead (all files were copied; the user may already have played on them): `to` is made active (restore: unchanged). Then the journal is deleted. On failure the journal stays and recovery retries at the next start.
 
-Copy uses `walkdir` with preserved mtimes (`filetime`); handles read-only attributes and long paths (`\\?\` prefix).
+**Restore backup** (guarded the same way): only backups of the currently *active* profile with the same number of save paths can be restored. Live Pi are first backed up (reason `restore`, so a restore can be undone), then replaced with the backup content; the active profile does not change.
+
+**Copy rules**: `walkdir`, file contents + modification/access times (set via a `FILE_WRITE_ATTRIBUTES` handle so read-only files and folders work) + read-only attribute are preserved; read-only files are made writable before overwrite/delete. Symlinks/junctions inside save folders are refused (the backup step fails before anything is modified). Long paths are handled by Rust's std (automatic `\\?\` prefix).
 
 ## Data layout
 ```
@@ -67,7 +75,9 @@ Copy uses `walkdir` with preserved mtimes (`filetime`); handles read-only attrib
   games\<game-id>\
     profiles\<profile-id>\data\<path-index>\...
     profiles\<profile-id>\profile.json
+    profiles\<profile-id>\staging\, trash\   # only during a store
     backups\<timestamp>_<profile-id>\<path-index>\...
+    backups\<timestamp>_<profile-id>\backup.json   # {profile_id, created_at, reason, save_path_count}; marks the backup complete
     swap.journal.json         # only during a swap
 ```
 `config.json` (schema v1): `{ version, settings{storage_root, backup_limit, include_config, theme}, games:[{ id(uuid), name, source:{kind:"steam",appid,install_dir}|{kind:"manual"}, exe_path, icon, save_paths:[{template, resolved}], profiles:[{id, name, created_at, last_used_at}], active_profile_id, backup_limit? }] }`. Profile folders use ids (not names) so renames are free.
@@ -126,6 +136,7 @@ Key crates: `tauri 2`, `tauri-plugin-dialog`, `tauri-plugin-opener`, `serde`/`se
 6. Ludusavi manifest fetch/cache/index + placeholder resolution → suggestions.
 7. Process detection, Play/launch, backup restore UI, settings.
 8. Polish, installer build (NSIS/MSI via Tauri bundler), docs pass.
+9. Italian translation: `it` catalog for every message key, language setting (system/en/it), localized dates/sizes, installer languages.
 
 ## Verification
 - `cargo test`: swap engine on temp dirs (A→B→A round trip preserves bytes & mtimes; fresh profile → empty live; failure mid-copy triggers rollback; journal recovery; backup pruning), VDF/ACF parsing fixtures, placeholder expansion fixtures, manifest indexing on a small sample.
