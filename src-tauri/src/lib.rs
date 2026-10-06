@@ -3,8 +3,10 @@ pub mod config;
 pub mod error;
 pub mod games;
 pub mod icons;
+pub mod launch;
 pub mod manifest;
 pub mod paths;
+pub mod process;
 pub mod steam;
 pub mod swap;
 
@@ -77,6 +79,9 @@ pub fn run() {
             commands::manifest_status,
             commands::refresh_manifest,
             commands::suggest_save_paths,
+            commands::game_running,
+            commands::launch_game,
+            commands::open_storage_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

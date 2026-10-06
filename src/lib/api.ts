@@ -78,6 +78,15 @@ export const refreshManifest = () => invoke<ManifestStatus>("refresh_manifest");
 /** Save folder suggestions from the Ludusavi manifest (waits for a running download). */
 export const suggestSavePaths = (query: SuggestQuery) => invoke<Suggestions>("suggest_save_paths", { query });
 
+/** Whether the game is running now (profile switches are refused while it is). */
+export const gameRunning = (gameId: Uuid) => invoke<boolean>("game_running", { gameId });
+
+/** Starts the game (Steam games through Steam). */
+export const launchGame = (gameId: Uuid) => invoke<void>("launch_game", { gameId });
+
+/** Opens the folder holding profiles and backups in Explorer. */
+export const openStorageFolder = () => invoke<void>("open_storage_folder");
+
 export function isAppError(e: unknown): e is AppError {
   return !!e && typeof e === "object" && "kind" in e && "message" in e;
 }

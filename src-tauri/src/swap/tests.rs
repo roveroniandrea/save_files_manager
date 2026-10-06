@@ -57,6 +57,7 @@ impl Fx {
                 reserved: vec![root],
             },
             places: Default::default(),
+            running: Default::default(),
         };
         Fx {
             _tmp: tmp,
@@ -507,4 +508,26 @@ fn unsafe_save_path_is_refused_before_touching_anything() {
     assert!(matches!(fx.switch(fx.b), Err(AppError::InvalidSavePath { .. })));
     assert_eq!(fx.live_snapshot(), live);
     assert!(fx.backups().is_empty());
+}
+
+#[test]
+fn running_game_blocks_switch_and_restore() {
+    let mut fx = Fx::new();
+    fx.switch(fx.b).unwrap();
+    fx.switch(fx.a).unwrap();
+    let before = (fx.live_snapshot(), fx.stored(fx.b), fx.backups().len());
+    let backup = fx.backups()[0].id.clone();
+
+    fx.ctx.running = RunningCheck::new(|g| g.name == "Test Game");
+    assert!(matches!(fx.switch(fx.b), Err(AppError::GameRunning(name)) if name == "Test Game"));
+    assert!(matches!(
+        restore_backup(&fx.store, &fx.ctx, fx.game, &backup),
+        Err(AppError::GameRunning(_))
+    ));
+    assert_eq!(fx.active(), fx.a);
+    assert_eq!((fx.live_snapshot(), fx.stored(fx.b), fx.backups().len()), before);
+    fx.assert_clean();
+
+    fx.ctx.running = RunningCheck::new(|g| g.name == "Other");
+    fx.switch(fx.b).unwrap();
 }

@@ -15,8 +15,9 @@ pub mod validate;
 pub mod test_util;
 
 use std::fs;
+use std::fmt;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,34 @@ pub struct SwapOptions {
     pub allow_empty_live: bool,
 }
 
+/// Tells whether a game is running (swaps are refused while it is).
+/// The default never reports a running game (tests).
+#[derive(Clone, Default)]
+pub struct RunningCheck(Option<Arc<IsRunning>>);
+
+type IsRunning = dyn Fn(&Game) -> bool + Send + Sync;
+
+impl RunningCheck {
+    pub fn new(f: impl Fn(&Game) -> bool + Send + Sync + 'static) -> Self {
+        RunningCheck(Some(Arc::new(f)))
+    }
+
+    /// Real process detection.
+    pub fn system() -> Self {
+        Self::new(crate::process::is_running)
+    }
+
+    pub fn is_running(&self, game: &Game) -> bool {
+        self.0.as_ref().is_some_and(|f| f(game))
+    }
+}
+
+impl fmt::Debug for RunningCheck {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RunningCheck")
+    }
+}
+
 /// Everything the engine needs besides the config.
 #[derive(Debug, Clone)]
 pub struct SwapContext {
@@ -47,6 +76,15 @@ pub struct SwapContext {
     pub guards: Guards,
     /// Known folders, for save path templates.
     pub places: Places,
+    pub running: RunningCheck,
+}
+
+/// Refuses to touch the save folders of a running game.
+fn check_not_running(ctx: &SwapContext, game: &Game) -> AppResult<()> {
+    if ctx.running.is_running(game) {
+        return Err(AppError::GameRunning(game.name.clone()));
+    }
+    Ok(())
 }
 
 impl SwapContext {
@@ -62,7 +100,12 @@ impl SwapContext {
             reserved: vec![paths.app_dir().to_path_buf(), layout.root().to_path_buf()],
         };
         let places = Places::from_system(steam.map(|s| s.root().to_path_buf()));
-        Ok(SwapContext { layout, guards, places })
+        Ok(SwapContext {
+            layout,
+            guards,
+            places,
+            running: RunningCheck::system(),
+        })
     }
 }
 
@@ -85,6 +128,7 @@ pub fn switch_profile(
         return Ok(());
     }
     let live = validate::live_paths(game, &ctx.guards)?;
+    check_not_running(ctx, game)?;
     check_live_not_empty(&ctx.layout, game_id, from, &live, opts)?;
 
     let journal_path = ctx.layout.journal_file(game_id);
@@ -155,6 +199,7 @@ pub fn restore_backup(store: &ConfigStore, ctx: &SwapContext, game_id: Uuid, bac
     let game = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
     let active = active_profile(game)?;
     let live = validate::live_paths(game, &ctx.guards)?;
+    check_not_running(ctx, game)?;
     let backups_dir = ctx.layout.backups_dir(game_id);
     let (source, meta) = backup::find(&backups_dir, backup_id)?;
     if meta.profile_id != active {

@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 
 ## Unreleased
+- Running-game detection (`process.rs`, Win32 process list, no new crate): profile switches and backup restores are refused while the game runs (error kind `game_running`); the game page shows a "running" banner (polled every 3 s) and disables Switch/Restore/Play.
+- Play button (`launch.rs`): Steam games via `steam://rungameid/<appid>`, manual games via their exe (working dir = exe folder, UAC prompt for elevated exes); "play as" profile selector switches first. New error kinds `no_executable`, `launch_failed`.
+- Backups section on the game page: list with date, profile and reason; Restore (with confirmation) for backups of the active profile.
+- Settings page: theme (system/light/dark, now applied), default backup limit, settings folders in suggestions, save location database status and update check, storage folder (open in Explorer; change/reset only while no games are added).
+- New commands `game_running`, `launch_game`, `open_storage_folder`; `update_settings` checks that a new storage folder is absolute and creates it.
 - Save folder suggestions from the Ludusavi manifest (`src-tauri/src/manifest/`): background download at startup (at most once per 7 days, ETag), compact cached index (`manifest\index.v1.json`), lookup by Steam appid or name/alias, placeholder expansion, glob matching, file entries collapsed to their folder, safety checks. The game editor shows suggestions (automatically for new Steam games, "Find" for others) with Found / Not found / unsafe markers, the database date and "Check for updates".
 - Save folders are now stored with placeholder templates (`<winAppData>/…`, `<base>/…` for Steam games, …). Existing configs are converted at startup; a save folder whose template resolves elsewhere follows it when the old folder is gone and the new one exists (fixes KB-008). The template is shown as a tooltip on the game page.
 - New commands `manifest_status`, `refresh_manifest`, `suggest_save_paths`; new error kind `manifest`. New crates `ureq`, `serde_yaml_ng`, `glob`.

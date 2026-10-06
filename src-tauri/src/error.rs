@@ -57,6 +57,12 @@ pub enum AppError {
     SteamNotFound,
     #[error("Steam app {0} is not installed")]
     SteamAppNotFound(u32),
+    #[error("'{0}' is running; close it first")]
+    GameRunning(String),
+    #[error("the game has no executable set")]
+    NoExecutable,
+    #[error("{0}")]
+    LaunchFailed(String),
     /// The Ludusavi manifest could not be downloaded or read.
     #[error("{0}")]
     Manifest(String),
@@ -101,6 +107,9 @@ impl AppError {
             AppError::GameAlreadyAdded(_) => "game_already_added",
             AppError::SteamNotFound => "steam_not_found",
             AppError::SteamAppNotFound(_) => "steam_app_not_found",
+            AppError::GameRunning(_) => "game_running",
+            AppError::NoExecutable => "no_executable",
+            AppError::LaunchFailed(_) => "launch_failed",
             AppError::Manifest(_) => "manifest",
             AppError::Other(_) => "other",
         }

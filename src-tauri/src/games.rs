@@ -243,6 +243,7 @@ mod tests {
                 reserved: vec![root],
             },
             places: Default::default(),
+            running: Default::default(),
         };
         let icons = tmp.path().join("icons");
         (tmp, store, ctx, icons)

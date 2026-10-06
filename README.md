@@ -11,7 +11,8 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 - Manually add any game: exe, custom name and icon, one or more save folders.
 - Independent profiles per game: create fresh or cloned, rename, delete, switch.
 - Safe swaps: automatic backups before each swap, rollback on failure, blocked while the game is running.
-- Launch the game directly with the chosen profile.
+- Play button: switch to the chosen profile and launch the game (Steam games through Steam).
+- Backups list per game with one-click restore; settings page (theme, backup limit, storage folder, save location database).
 - Multilingual UI: English first, Italian planned.
 
 ## Development

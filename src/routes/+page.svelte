@@ -4,6 +4,7 @@
   import GameDetail from "$lib/components/GameDetail.svelte";
   import GameEditor from "$lib/components/GameEditor.svelte";
   import GameIcon from "$lib/components/GameIcon.svelte";
+  import Settings from "$lib/components/Settings.svelte";
   import SteamPicker from "$lib/components/SteamPicker.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { t } from "$lib/i18n";
@@ -50,8 +51,11 @@
           <li>
             <button
               class="game"
-              class:selected={game.id === app.selectedId}
-              onclick={() => (app.selectedId = game.id)}
+              class:selected={app.view === "game" && game.id === app.selectedId}
+              onclick={() => {
+                app.selectedId = game.id;
+                app.view = "game";
+              }}
             >
               <GameIcon {game} size={28} />
               <span class="label">
@@ -62,9 +66,14 @@
           </li>
         {/each}
       </ul>
+      <button class="settings-link" class:selected={app.view === "settings"} onclick={() => (app.view = "settings")}>
+        ⚙ {t("settings.open")}
+      </button>
     </nav>
     <main>
-      {#if app.selected}
+      {#if app.view === "settings"}
+        <Settings />
+      {:else if app.selected}
         {#key app.selected.id}
           <GameDetail game={app.selected} />
         {/key}
@@ -126,6 +135,13 @@
     background: none;
     text-align: left;
   }
+  .settings-link {
+    margin-top: auto;
+    border: none;
+    background: none;
+    text-align: left;
+  }
+  .settings-link.selected,
   .game.selected {
     background: var(--surface-2);
   }

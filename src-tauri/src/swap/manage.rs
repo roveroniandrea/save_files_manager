@@ -278,6 +278,7 @@ mod tests {
                 reserved: vec![root],
             },
             places: Default::default(),
+            running: Default::default(),
         };
         Fx {
             tmp,

@@ -3,16 +3,22 @@
   import {
     createProfile,
     deleteProfile,
+    errorDetail,
+    errorMessage,
+    gameRunning,
     isAppError,
+    launchGame,
+    listBackups,
     profileStats,
     renameProfile,
+    restoreBackup,
     steamCloudStatus,
     switchProfile,
   } from "$lib/api";
   import { formatBytes, formatDate } from "$lib/format";
   import { t, tn } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import type { CloudStatus, Game, Profile, ProfileStats, Uuid } from "$lib/types";
+  import type { BackupInfo, CloudStatus, Game, Profile, ProfileStats, Uuid } from "$lib/types";
   import GameEditor from "./GameEditor.svelte";
   import GameIcon from "./GameIcon.svelte";
   import RemoveGameDialog from "./RemoveGameDialog.svelte";
@@ -43,6 +49,48 @@
     };
   });
 
+  // Running state, polled while the page is shown: switches are refused while the game runs.
+  let running = $state(false);
+  $effect(() => {
+    const id = game.id;
+    let cancelled = false;
+    const poll = () =>
+      gameRunning(id)
+        .then((r) => {
+          if (!cancelled) running = r;
+        })
+        .catch(() => {});
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  });
+
+  // Backups, reloaded after every config change (switches and restores add some).
+  let backups = $state<BackupInfo[]>([]);
+  $effect(() => {
+    const id = game.id;
+    void game; // new object after every config change
+    let cancelled = false;
+    listBackups(id)
+      .then((list) => {
+        if (!cancelled) backups = list;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  /** Profile to play as; follows the active profile until changed. */
+  let playAs = $state<Uuid | null>(null);
+  $effect(() => {
+    playAs = game.active_profile_id;
+  });
+  const canPlay = $derived(game.source.kind === "steam" || !!game.exe_path);
+
   // Steam Cloud warning (Steam games only); checked when the game is shown.
   let cloud = $state<CloudStatus | null>(null);
   $effect(() => {
@@ -68,7 +116,8 @@
     ),
   );
 
-  async function switchTo(profile: Profile, allowEmptyLive = false) {
+  /** Switches profile (asking when live saves are empty); true on success. */
+  async function switchTo(profile: Profile, allowEmptyLive = false): Promise<boolean> {
     let needsConfirm = false;
     const ok = await app.run(
       () => switchProfile(game.id, profile.id, { allow_empty_live: allowEmptyLive }),
@@ -76,7 +125,9 @@
     );
     if (ok) {
       app.toast("info", t("switch.done", { game: game.name, profile: profile.name }));
-    } else if (needsConfirm) {
+      return true;
+    }
+    if (needsConfirm) {
       const active = game.profiles.find((p) => p.id === game.active_profile_id);
       const yes = await ask(t("switch.emptyConfirm", { game: game.name, profile: active?.name ?? "" }), {
         title: t("switch.emptyTitle"),
@@ -84,7 +135,40 @@
         okLabel: t("switch.continue"),
         cancelLabel: t("common.cancel"),
       });
-      if (yes) await switchTo(profile, true);
+      if (yes) return switchTo(profile, true);
+    }
+    return false;
+  }
+
+  /** Switches to the "play as" profile if needed, then starts the game. */
+  async function play() {
+    const target = game.profiles.find((p) => p.id === playAs);
+    if (target && target.id !== game.active_profile_id && !(await switchTo(target))) return;
+    app.busy = true;
+    try {
+      await launchGame(game.id);
+      app.toast("info", t("play.started", { game: game.name }));
+      setTimeout(() => gameRunning(game.id).then((r) => (running = r)).catch(() => {}), 1500);
+    } catch (e) {
+      app.toast("error", errorMessage(e), errorDetail(e));
+    } finally {
+      app.busy = false;
+    }
+  }
+
+  async function restore(backup: BackupInfo) {
+    const profile = game.profiles.find((p) => p.id === backup.profile_id);
+    const yes = await ask(
+      t("backups.restoreConfirm", { profile: profile?.name ?? "", date: formatDate(backup.created_at) }),
+      {
+        title: t("backups.restoreTitle"),
+        kind: "warning",
+        okLabel: t("backups.restore"),
+        cancelLabel: t("common.cancel"),
+      },
+    );
+    if (yes && (await app.run(() => restoreBackup(game.id, backup.id)))) {
+      app.toast("info", t("backups.restored"));
     }
   }
 
@@ -130,9 +214,33 @@
         {#if game.source.kind === "steam"}· {t("game.steamAppId", { appid: game.source.appid })}{/if}
       </span>
     </div>
+    <div class="play">
+      {#if game.profiles.length > 1}
+        <select bind:value={playAs} disabled={app.busy || running} aria-label={t("play.as")} title={t("play.as")}>
+          {#each profiles as p (p.id)}
+            <option value={p.id}>{p.name}</option>
+          {/each}
+        </select>
+      {/if}
+      <button
+        class="primary"
+        onclick={play}
+        disabled={app.busy || running || !canPlay}
+        title={canPlay ? "" : t("play.noExecutable")}
+      >
+        ▶ {t("play.play")}
+      </button>
+    </div>
     <button onclick={() => (editing = true)} disabled={app.busy}>{t("game.edit")}</button>
     <button class="danger" onclick={() => (removing = true)} disabled={app.busy}>{t("game.remove")}</button>
   </header>
+
+  {#if running}
+    <div class="warning running" role="status">
+      <strong>{t("play.running")}</strong>
+      <p>{t("play.runningBody")}</p>
+    </div>
+  {/if}
 
   {#if cloud && cloud.accounts.length > 0}
     <div class="warning" role="alert">
@@ -211,7 +319,7 @@
         </div>
         <div class="actions">
           {#if !active}
-            <button class="primary" disabled={app.busy} onclick={() => switchTo(profile)}>
+            <button class="primary" disabled={app.busy || running} onclick={() => switchTo(profile)}>
               {t("profile.switch")}
             </button>
           {/if}
@@ -230,6 +338,36 @@
       <li class="path" title={path.template}>{path.resolved}</li>
     {/each}
   </ul>
+
+  <h2>{t("backups.title")}</h2>
+  {#if backups.length === 0}
+    <p class="muted">{t("backups.none")}</p>
+  {:else}
+    <p class="muted hint">{t("backups.hint")}</p>
+    <ul class="backups">
+      {#each backups as backup (backup.id)}
+        {@const profile = game.profiles.find((p) => p.id === backup.profile_id)}
+        {@const isActive = backup.profile_id === game.active_profile_id}
+        <li>
+          <div class="main">
+            <div>{formatDate(backup.created_at)}</div>
+            <div class="muted meta">
+              {t(backup.reason === "restore" ? "backups.reasonRestore" : "backups.reasonSwitch", {
+                profile: profile?.name ?? t("backups.deletedProfile"),
+              })}
+            </div>
+          </div>
+          <button
+            disabled={app.busy || running || !isActive}
+            title={isActive ? "" : t("backups.onlyActive")}
+            onclick={() => restore(backup)}
+          >
+            {t("backups.restore")}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 
   <h2>{t("game.executable")}</h2>
   <p class="path">{game.exe_path ?? t("game.noExecutable")}</p>
@@ -348,6 +486,24 @@
   .rename input {
     flex: 1;
     min-width: 0;
+  }
+  .play {
+    display: flex;
+    gap: 6px;
+  }
+  .play select {
+    max-width: 160px;
+  }
+  .hint {
+    margin: 0 0 8px;
+    font-size: 12.5px;
+  }
+  .backups li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
   }
   .warning {
     padding: 10px 14px;

@@ -19,8 +19,10 @@
   background: var(--bg);
 }
 
+/* Dark theme: follows the system unless the theme setting forces one
+   (`data-theme` on <html>, set from settings.theme). Keep both blocks equal. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #17191d;
     --surface: #212429;
     --surface-2: #2a2e34;
@@ -34,6 +36,20 @@
     --warning-bg: #3d3420;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #17191d;
+  --surface: #212429;
+  --surface-2: #2a2e34;
+  --text: #e8eaed;
+  --muted: #9aa1ac;
+  --border: #363b43;
+  --accent: #5b8ff0;
+  --accent-text: #ffffff;
+  --danger: #ef6b5d;
+  --success: #4cc27f;
+  --warning-bg: #3d3420;
+  color-scheme: dark;
 }
 
 * {

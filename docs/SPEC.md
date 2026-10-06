@@ -38,18 +38,18 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
    - **Rename** any profile; **delete** non-active profiles (confirm dialog; deletes its stored saves). Profile names are unique per game (case-insensitive) and non-empty.
    - Show per-profile: name, active badge, last used, size and newest file modification time (live folders for the active profile, stored copy for the others).
    - All profile/game file operations are serialized by one app-wide lock and refused (`operation_in_progress`) while a journal exists for the game.
-4. **Play**: button launches the game (Steam: `steam://rungameid/<appid>` via opener; manual: spawn exe with working dir = exe dir). Profile selector next to Play does "switch then launch".
+4. **Play**: button in the game header launches the game through the Windows shell (`ShellExecuteW`): Steam games open `steam://rungameid/<appid>`; manual games run their exe with working dir = exe dir (elevated exes show the UAC prompt). Manual games without an exe cannot be played from the app. When the game has several profiles, a selector next to Play (defaulting to the active profile) does "switch then launch" (with the same `live_saves_empty` confirmation as a switch). Play is disabled while the game is running.
 5. **Safety**
-   - Block swap if the game process is running (match by exe path via `sysinfo`; for Steam games, any process whose exe lives under the install dir).
+   - Block switch and restore if the game is running (error `game_running`): a process whose exe is the game's exe (manual games; games without an exe cannot be detected) or lives under the install dir (Steam games). Processes are listed with `EnumProcesses` + `QueryFullProcessImageNameW` (no extra crate); processes that cannot be queried are skipped. The game page polls this every 3 s, shows a "running" banner and disables Switch/Restore/Play meanwhile.
    - Warn if Steam Cloud is enabled for the game. Heuristic, per Steam account (`userdata/<account-id>`): `<appid>/remotecache.vdf` exists or `<appid>/remote` is non-empty, unless `CloudEnabled "0"` is set for the app (`apps/<appid>`) or globally (directly under `Software/Valve/Steam`) in `7/remote/sharedconfig.vdf` or `config/localconfig.vdf`. The game page shows a banner naming the accounts, explaining Steam may overwrite swapped saves and how to disable cloud saves for the game.
-   - Pre-swap backup snapshot; restore-from-backup UI (list backups with timestamp, restore into live = itself a guarded swap).
+   - Pre-swap backup snapshot; restore-from-backup UI on the game page: backups newest first with date, profile and reason ("before switching profile" / "before restoring a backup"); Restore (confirmation) only for backups of the active profile; restore = itself a guarded operation that backs up the live saves first.
    - Detect **drift**: if the live folder was changed outside the app since last swap, that's normal (game played); but if live content is missing/empty unexpectedly, warn before overwriting the active profile's store.
-6. **Settings**: storage root (default `%APPDATA%\SaveFilesManager`), default backup limit, manifest refresh, include `config` tagged paths, theme (system/light/dark).
+6. **Settings** (page opened from the sidebar; every change is saved at once): theme (system/light/dark, applied via `data-theme` on `<html>`), default backup limit, include `config` tagged paths in suggestions, save location database status (games, last update, last check, last error) with "Check for updates", storage root (default `%APPDATA%\SaveFilesManager`; "Open folder" in Explorer; "Change…"/"Use default" only while no games are added, see KB-004; must be absolute, created if missing), app version.
 7. **Languages (i18n)**: the UI is multilingual. Every user-visible string lives in a message catalog (`src/lib/i18n/`), never hard-coded in components. English is the only language until the final milestone, which adds **Italian** plus a language setting (system/English/Italian; "system" follows the OS locale, falling back to English). Backend errors carry a stable `kind` that the UI translates; the backend `message` is English technical detail.
 
 ## Swap algorithm (core, Rust, unit-tested)
 For game G, switching active profile A → B, with save paths P1..Pn (implemented in `src-tauri/src/swap/`):
-1. **Preconditions** (nothing is written if they fail): B ≠ A (same profile = no-op), B exists, game not running *(M7)*, and every Pi passes the **save path safety checks**:
+1. **Preconditions** (nothing is written if they fail): B ≠ A (same profile = no-op), B exists, game not running (`game_running`), and every Pi passes the **save path safety checks**:
    - absolute, not a drive root, no Pi nested in another;
    - not equal to and not containing a protected folder (user home, Documents, Desktop, Downloads, Pictures, Videos, Music, Public, `%APPDATA%`, `%LOCALAPPDATA%`, ProgramData, Program Files, Windows, the Steam install dir, `Steam\userdata` and each account folder in it, every Steam library with its `steamapps` and `steamapps\common` folders, the game's install dir, the exe's folder); being *inside* one is fine;
    - no overlap at all with the app dir or the storage root.
@@ -111,12 +111,12 @@ save_files_manager/
     src/steam/{mod,vdf,library,users,cloud}.rs
     src/manifest/{mod,fetch,index,placeholders,resolve}.rs  # Ludusavi download/index + placeholders + suggestions
     src/swap/{mod,copy,journal,backup}.rs
-    src/process.rs             # running-game detection (sysinfo)
+    src/process.rs             # running-game detection (Win32 process list)
     src/icons.rs               # exe icon extraction (windows crate → PNG via image)
-    src/launch.rs
+    src/launch.rs              # Play (ShellExecuteW), open folder
     src/error.rs               # thiserror AppError, serialized to UI
 ```
-Key crates: `tauri 2`, `tauri-plugin-dialog`, `tauri-plugin-opener`, `serde`/`serde_json`, `serde_yaml_ng` (manifest), `sysinfo`, `walkdir`, `filetime`, `glob`, `ureq` (rustls, gzip; smaller than `reqwest`, the app needs a single blocking download), `dirs`, `chrono`, `uuid`, `thiserror`, `windows` (icon extraction, registry), `png`. VDF is parsed by a small own parser (`steam/vdf.rs`). Manifest is large (~18 MB YAML) → parse once in a background task, index into a compact cached JSON to keep startup fast and memory low.
+Key crates: `tauri 2`, `tauri-plugin-dialog`, `tauri-plugin-opener`, `serde`/`serde_json`, `serde_yaml_ng` (manifest), `walkdir`, `filetime`, `glob`, `ureq` (rustls, gzip; smaller than `reqwest`, the app needs a single blocking download), `dirs`, `chrono`, `uuid`, `thiserror`, `windows` (icon extraction, registry, process list, shell launch), `png`. VDF is parsed by a small own parser (`steam/vdf.rs`). Manifest is large (~18 MB YAML) → parse once in a background task, index into a compact cached JSON to keep startup fast and memory low.
 
 ## UI (single window)
 - Left: game list (icon + name + active profile badge), "+ Add game" (Steam scan / manual).

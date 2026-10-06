@@ -12,6 +12,8 @@ export interface Toast {
 class AppState {
   config = $state<Config | null>(null);
   selectedId = $state<Uuid | null>(null);
+  /** Main panel: the selected game, or the settings page. */
+  view = $state<"game" | "settings">("game");
   /** A long-running command is in progress (buttons are disabled). */
   busy = $state(false);
   toasts = $state<Toast[]>([]);
@@ -33,6 +35,8 @@ class AppState {
 
   setConfig(config: Config) {
     this.config = config;
+    // Theme override for app.css ("system" follows the OS).
+    document.documentElement.dataset.theme = config.settings.theme;
     if (!config.games.some((g) => g.id === this.selectedId)) {
       this.selectedId = config.games[0]?.id ?? null;
     }

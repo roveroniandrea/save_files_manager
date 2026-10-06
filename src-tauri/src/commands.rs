@@ -28,10 +28,18 @@ pub fn get_config(store: State<'_, ConfigStore>) -> AppResult<Config> {
 #[tauri::command]
 pub fn update_settings(store: State<'_, ConfigStore>, settings: Settings) -> AppResult<Config> {
     store.update(|config| {
-        if settings.storage_root != config.settings.storage_root && !config.games.is_empty() {
-            return Err(AppError::Other(
-                "the storage folder cannot be changed while games are configured (see KNOWN_BUGS KB-004)".into(),
-            ));
+        if settings.storage_root != config.settings.storage_root {
+            if !config.games.is_empty() {
+                return Err(AppError::Other(
+                    "the storage folder cannot be changed while games are configured (see KNOWN_BUGS KB-004)".into(),
+                ));
+            }
+            if let Some(root) = &settings.storage_root {
+                if !root.is_absolute() {
+                    return Err(AppError::Other(format!("{} is not an absolute path", root.display())));
+                }
+                std::fs::create_dir_all(root).map_err(|e| AppError::io(root, e))?;
+            }
         }
         config.settings = settings;
         Ok(config.clone())
@@ -70,6 +78,29 @@ pub fn restore_backup(
     let ctx = SwapContext::new(&paths, &store)?;
     swap::restore_backup(&store, &ctx, game_id, &backup_id)?;
     store.get()
+}
+
+/// Whether the game is running now (swaps are refused while it is).
+#[tauri::command(async)]
+pub fn game_running(store: State<'_, ConfigStore>, game_id: Uuid) -> AppResult<bool> {
+    let config = store.get()?;
+    let game = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
+    Ok(crate::process::is_running(game))
+}
+
+/// Starts the game (Steam: `steam://rungameid/<appid>`; manual: its exe).
+#[tauri::command(async)]
+pub fn launch_game(store: State<'_, ConfigStore>, game_id: Uuid) -> AppResult<()> {
+    let config = store.get()?;
+    let game = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
+    crate::launch::launch(game)
+}
+
+/// Opens the folder holding profiles and backups in Explorer.
+#[tauri::command(async)]
+pub fn open_storage_folder(paths: State<'_, AppPaths>, store: State<'_, ConfigStore>) -> AppResult<()> {
+    let layout = paths.storage(&store.get()?.settings);
+    crate::launch::open_folder(layout.root())
 }
 
 /// Returns the startup recovery reports once (subsequent calls return none).

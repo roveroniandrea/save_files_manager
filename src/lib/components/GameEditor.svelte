@@ -104,7 +104,10 @@
       initial ? updateGame(initial.id, input) : addGame(input, firstProfile, steamApp?.appid ?? null),
     );
     if (ok) {
-      if (!initial) app.selectedId = app.config?.games.find((g) => !before.has(g.id))?.id ?? app.selectedId;
+      if (!initial) {
+        app.selectedId = app.config?.games.find((g) => !before.has(g.id))?.id ?? app.selectedId;
+        app.view = "game";
+      }
       onclose();
     }
   }
