@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 
 ## Unreleased
+- Release packaging: NSIS installer (per-user, no admin rights, ~2.3 MB; release exe ~6.5 MB), app icon (source `src-tauri/icons/app-icon.svg`), product metadata, minimum window size.
+- Only one instance of the app runs at a time; starting it again focuses the existing window (prevents two processes from editing the config or swapping folders at once).
+- Release builds no longer show the browser context menu (Back, Refresh, …) outside text fields.
+- README rewritten with install and usage instructions.
+- Milestone 10 (optional) planned: fuzzy matching and manual search of the save location database.
 - Running-game detection (`process.rs`, Win32 process list, no new crate): profile switches and backup restores are refused while the game runs (error kind `game_running`); the game page shows a "running" banner (polled every 3 s) and disables Switch/Restore/Play.
 - Play button (`launch.rs`): Steam games via `steam://rungameid/<appid>`, manual games via their exe (working dir = exe folder, UAC prompt for elevated exes); "play as" profile selector switches first. New error kinds `no_executable`, `launch_failed`.
 - Backups section on the game page: list with date, profile and reason; Restore (with confirmation) for backups of the active profile.

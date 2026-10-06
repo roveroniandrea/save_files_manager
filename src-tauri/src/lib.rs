@@ -41,6 +41,15 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // One instance only: the operation lock and the in-memory config are
+        // per process, so a second instance could overwrite the first one's
+        // changes. Starting it again focuses the existing window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Manifest::new(paths.manifest_dir()))

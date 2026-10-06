@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Source of the app icon. Regenerate all sizes with: npx tauri icon src-tauri/icons/app-icon.svg -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b7cf0"/>
+      <stop offset="1" stop-color="#1f4fb8"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="200" fill="url(#bg)"/>
+  <!-- Floppy disk -->
+  <path d="M262 232h412l118 118v442a30 30 0 0 1-30 30H262a30 30 0 0 1-30-30V262a30 30 0 0 1 30-30z" fill="#ffffff"/>
+  <rect x="330" y="232" width="300" height="190" rx="14" fill="#cfdcf7"/>
+  <rect x="540" y="262" width="56" height="130" rx="10" fill="#1f4fb8"/>
+  <rect x="302" y="540" width="420" height="252" rx="18" fill="#e7eefc"/>
+  <!-- Swap arrows -->
+  <g fill="none" stroke="#f39c32" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M392 606h232"/>
+    <path d="M578 562l46 44-46 44"/>
+    <path d="M632 728H400"/>
+    <path d="M446 684l-46 44 46 44"/>
+  </g>
+</svg>

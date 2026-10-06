@@ -24,6 +24,7 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
 - `src/lib/state.svelte.ts` — global `app` state: config snapshot (sets `data-theme` on `<html>` from the theme setting), selected game, `view` (game / settings), `busy`, toasts; `app.run(command)` runs a config-returning command and turns errors into toasts.
 - `src/lib/format.ts` — locale-aware sizes and dates.
 - `src/lib/components/` — `Settings` (settings page), `GameDetail` (Play with "play as" profile selector, running banner (polled every 3 s), profiles: switch with the `live_saves_empty` confirm, new fresh/clone, rename, delete; backups with Restore; save folders; Steam appid/install folder and Steam Cloud warning banner), `SteamPicker` (first step of "Add game": searchable list of installed Steam games, "Other game…" for manual games), `GameEditor` (add/edit modal: name, exe, icon with preview incl. "From Steam", save folders with `SaveFolderSuggestions`, first profile / backup limit; `steam` prop = adding that Steam game), `SaveFolderSuggestions` (Ludusavi suggestions: automatic for a new Steam game, "Find" otherwise; add buttons; database date and "Check for updates"), `RemoveGameDialog`, `GameIcon`, `Modal` (native `<dialog>`), `Toasts`.
+- `src/routes/+layout.svelte` — global CSS; release builds suppress the WebView context menu outside text fields.
 - `src/routes/+page.svelte` — layout: game list sidebar + detail; add-game flow (picker → editor); shows startup recovery reports. `src/app.css` — theme tokens: light by default, dark via `prefers-color-scheme` unless `data-theme="light"`, or forced by `data-theme="dark"`.
 - Native dialogs (file/folder pickers, confirmations) come from `@tauri-apps/plugin-dialog`; their labels are passed through `t()`.
 - `src/lib/i18n/` — `en.ts` (reference catalog; flat keys, `{placeholders}`, `_one`/`_other` plural suffixes), `i18n.svelte.ts` (`t()`, `tn()`, reactive locale). Every UI string goes through it; English only until milestone 9 adds `it.ts`.
@@ -57,7 +58,7 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
   - `cloud.rs` — `cloud_status(appid)`: accounts with Steam Cloud active for the app (see SPEC).
   - `mod.rs` — `library_icon(appid)`, `protected_folders()` (added to the swap guards), `scan()` (games + icon data URLs).
   - Read-only smoke test against the real install: `cargo test real_steam -- --ignored --nocapture`.
-- `lib.rs` — builds the app (plugins: opener, dialog); runs `swap::recover_all` at startup (if the config loaded) and keeps the reports in `StartupRecovery`, then `games::refresh_paths`; manages `Manifest` and starts the background manifest check in `setup`.
+- `lib.rs` — builds the app (plugins: single-instance (a second start focuses the existing window; the op lock and the in-memory config are per process), opener, dialog); runs `swap::recover_all` at startup (if the config loaded) and keeps the reports in `StartupRecovery`, then `games::refresh_paths`; manages `Manifest` and starts the background manifest check in `setup`.
 - `process.rs` — `running_exes` (`EnumProcesses` + `QueryFullProcessImageNameW`), `game_matches` (manual: exe path; Steam: under install dir), `is_running`. The swap engine gets it through `swap::RunningCheck` on `SwapContext` (tests inject their own; default = never running) and refuses switch/restore with `game_running`.
 - `launch.rs` — `target` (Steam URL / exe + working dir; `no_executable`, `launch_failed`), `launch`, `open_folder` (all via `ShellExecuteW`).
 - `commands.rs` — thin `#[tauri::command]` layer.
@@ -88,6 +89,12 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
 | `game_running` | `gameId` | `boolean` | Async. Polled by the game page. |
 | `launch_game` | `gameId` | — | Async. `no_executable`, `launch_failed`. |
 | `open_storage_folder` | — | — | Async. Opens the storage root in Explorer (created if missing). |
+
+## Build & packaging
+- `npm run tauri build` → release exe (`src-tauri/target/release/save-files-manager.exe`, ~6.5 MB; LTO, `opt-level = 3`, stripped, `panic = "abort"`) and an NSIS installer (`bundle/nsis/Save Files Manager_<version>_x64-setup.exe`, ~2.3 MB).
+- `tauri.conf.json`: product name/version/identifier (`com.savefilesmanager.app`), window 1100×720 (min 820×540), bundle target `nsis` only, `installMode: currentUser` (no admin rights), WebView2 bootstrapper (default), publisher/description metadata. MSI is not built (would need WiX and admin installs).
+- Icons: `src-tauri/icons/app-icon.svg` is the source; `npx tauri icon src-tauri/icons/app-icon.svg` regenerates the PNG/ICO/ICNS set (delete the generated `android/` and `ios/` folders).
+- Version: keep `version` in `tauri.conf.json`, `src-tauri/Cargo.toml` and `package.json` in sync.
 
 ## Data layout
 App dir `%APPDATA%\SaveFilesManager\` (fixed) and storage root (`settings.storage_root`, defaults to the app dir):

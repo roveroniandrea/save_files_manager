@@ -139,8 +139,9 @@ Key crates: `tauri 2`, `tauri-plugin-dialog`, `tauri-plugin-opener`, `serde`/`se
 5. Steam: library scan, users, appmanifest parsing, Steam icons (`appcache/librarycache`), Steam Cloud detection.
 6. Ludusavi manifest fetch/cache/index + placeholder resolution → suggestions.
 7. Process detection, Play/launch, backup restore UI, settings.
-8. Polish, installer build (NSIS/MSI via Tauri bundler), docs pass.
+8. Polish, installer build, docs pass. Done as: NSIS installer only (per-user, no admin rights; MSI skipped), app icon (`src-tauri/icons/app-icon.svg`), product metadata, single-instance guard (a second start focuses the running window, so two processes never edit the config or save folders at once), no WebView context menu in release builds outside text fields, README usage guide.
 9. Italian translation: `it` catalog for every message key, language setting (system/en/it), localized dates/sizes, installer languages.
+10. *(Optional, requested by the user)* Better database matching: when the exact (normalized) name is not found, suggest similar names from the Ludusavi index automatically (fuzzy match, e.g. token overlap / edit distance, ranked, top few shown as "Did you mean…"), and let the user search the database list manually in the editor and pick the entry whose save folders to suggest.
 
 ## Verification
 - `cargo test`: swap engine on temp dirs (A→B→A round trip preserves bytes & mtimes; fresh profile → empty live; failure mid-copy triggers rollback; journal recovery; backup pruning), VDF/ACF parsing fixtures, placeholder expansion fixtures, manifest indexing on a small sample.
