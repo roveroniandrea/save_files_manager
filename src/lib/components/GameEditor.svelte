@@ -6,6 +6,7 @@
   import { app } from "$lib/state.svelte";
   import type { Game, IconChoice, SavePathInput, ScannedGame } from "$lib/types";
   import Modal from "./Modal.svelte";
+  import SaveFolderSuggestions from "./SaveFolderSuggestions.svelte";
 
   /** `game` set = edit mode, otherwise add mode (`steam` set = adding that Steam game). */
   let { game, steam, onclose }: { game?: Game; steam?: ScannedGame; onclose: () => void } = $props();
@@ -177,7 +178,6 @@
     <div class="field">
       <span>{t("editor.saveFolders")}</span>
       <p class="muted hint">{t("editor.saveFoldersHint")}</p>
-      {#if steamApp && !initial}<p class="muted hint">{t("editor.steamFoldersHint")}</p>{/if}
       {#each folders as folder, i (folder.id ?? folder.path)}
         <div class="row folder">
           <button type="button" class="path grow link" onclick={() => changeFolder(i)}>{folder.path}</button>
@@ -189,6 +189,12 @@
         <p class="muted">{t("editor.noFolders")}</p>
       {/each}
       <button type="button" onclick={addFolder}>{t("editor.addFolder")}</button>
+      <SaveFolderSuggestions
+        query={() => ({ name, steam_appid: steamApp?.appid ?? null, exe_path: exePath })}
+        auto={!!steamApp && !initial}
+        chosen={folders.map((f) => f.path)}
+        onadd={(path) => folders.push({ path })}
+      />
     </div>
 
     {#if !initial}

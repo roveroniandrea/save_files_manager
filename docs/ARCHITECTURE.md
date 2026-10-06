@@ -11,7 +11,7 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
                                    ├─ error      AppError, serialized to the UI as { kind, message }
                                    ├─ swap       profile swap engine, backups, journal, startup recovery
                                    ├─ steam      registry, libraries, appmanifests, users, cloud, icons
-                                   ├─ manifest   Ludusavi manifest fetch/index/resolve         (planned)
+                                   ├─ manifest   Ludusavi manifest download/index, placeholders, suggestions
                                    ├─ process    running-game detection                        (planned)
                                    ├─ games      add/edit games (config + icon)
                                    ├─ icons      exe icon extraction (Win32 → PNG), custom images, data URLs
@@ -23,7 +23,7 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
 - `src/lib/api.ts` — typed wrappers over `invoke()` plus `errorMessage()` (localized from the error `kind`) / `errorDetail()`; `src/lib/types.ts` — shared types mirroring Rust structs (keep in sync with `config.rs`, `error.rs`, `swap/`, `games.rs`, `icons.rs`).
 - `src/lib/state.svelte.ts` — global `app` state: config snapshot, selected game, `busy`, toasts; `app.run(command)` runs a config-returning command and turns errors into toasts.
 - `src/lib/format.ts` — locale-aware sizes and dates.
-- `src/lib/components/` — `GameDetail` (profiles: switch with the `live_saves_empty` confirm, new fresh/clone, rename, delete; save folders; Steam appid/install folder and Steam Cloud warning banner), `SteamPicker` (first step of "Add game": searchable list of installed Steam games, "Other game…" for manual games), `GameEditor` (add/edit modal: name, exe, icon with preview incl. "From Steam", save folders, first profile / backup limit; `steam` prop = adding that Steam game), `RemoveGameDialog`, `GameIcon`, `Modal` (native `<dialog>`), `Toasts`.
+- `src/lib/components/` — `GameDetail` (profiles: switch with the `live_saves_empty` confirm, new fresh/clone, rename, delete; save folders; Steam appid/install folder and Steam Cloud warning banner), `SteamPicker` (first step of "Add game": searchable list of installed Steam games, "Other game…" for manual games), `GameEditor` (add/edit modal: name, exe, icon with preview incl. "From Steam", save folders with `SaveFolderSuggestions`, first profile / backup limit; `steam` prop = adding that Steam game), `SaveFolderSuggestions` (Ludusavi suggestions: automatic for a new Steam game, "Find" otherwise; add buttons; database date and "Check for updates"), `RemoveGameDialog`, `GameIcon`, `Modal` (native `<dialog>`), `Toasts`.
 - `src/routes/+page.svelte` — layout: game list sidebar + detail; add-game flow (picker → editor); shows startup recovery reports. `src/app.css` — theme tokens (light/dark via `prefers-color-scheme`).
 - Native dialogs (file/folder pickers, confirmations) come from `@tauri-apps/plugin-dialog`; their labels are passed through `t()`.
 - `src/lib/i18n/` — `en.ts` (reference catalog; flat keys, `{placeholders}`, `_one`/`_other` plural suffixes), `i18n.svelte.ts` (`t()`, `tn()`, reactive locale). Every UI string goes through it; English only until milestone 9 adds `it.ts`.
@@ -33,7 +33,7 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
 - `paths.rs` — `AppPaths` (fixed app dir: `config.json`, `manifest\`, `icons\`) and `StorageLayout` (storage root: `games\<id>\profiles\<id>\data\<save-path-id>`, `backups\`, `swap.journal.json`, `_orphaned\`).
 - `error.rs` — `AppError` (thiserror); every command returns `AppResult<T>`.
 - `swap/` — the swap engine (never loses data; see "Swap algorithm" in `docs/SPEC.md`):
-  - `mod.rs` — `switch_profile`, `restore_backup`, `list_backups`, `recover_all` (startup), rollback logic, `SwapContext` (storage layout + `Guards`), test-only fail points (`fail_point(name)`, no-op in release builds).
+  - `mod.rs` — `switch_profile`, `restore_backup`, `list_backups`, `recover_all` (startup), rollback logic, `SwapContext` (storage layout + `Guards` + `Places` for templates), test-only fail points (`fail_point(name)`, no-op in release builds).
   - `copy.rs` — copy folder contents preserving times/read-only, `clear_dir` (empties but keeps the folder), `remove_path`.
   - `journal.rs` — `swap.journal.json` (exclusive create = per-game lock, atomic step updates).
   - `backup.rs` — create/list/find/prune backups; `backup.json` marks completion.
@@ -41,7 +41,14 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
   - `manage.rs` — `create_profile` (fresh/clone), `rename_profile`, `delete_profile`, `remove_game`, `profile_stats`.
   - `op_lock()` — app-wide mutex serializing every operation that touches save/profile folders.
   - `tests.rs`, `test_util.rs` — engine tests on temp dirs (round trip, every failure point, locked files, each crash state).
-- `games.rs` — `add_game` (manual or Steam source; a Steam appid only once), `update_game` (`GameInput`; save paths keep their id when edited; the source never changes), `refresh_steam_install_dirs` (startup).
+- `games.rs` — `add_game` (manual or Steam source; a Steam appid only once), `update_game` (`GameInput`; save paths keep their id when edited; the source never changes), `refresh_paths` (startup: moved Steam installs, plain templates converted, relocated save folders followed when the old one is gone and the new one exists). Save path templates come from `manifest::placeholders::to_template`.
+- `manifest/` — Ludusavi manifest (see SPEC "Save location discovery"):
+  - `fetch.rs` — `Fetcher` trait, `HttpFetcher` (`ureq`, `If-None-Match`, 304 handling, size limit).
+  - `index.rs` — `build` (YAML → `Index`, one game at a time via a serde map visitor), `Lookup` (by Steam id, normalized name, aliases).
+  - `placeholders.rs` — `Places` (known folders), `GameContext` (`<base>`, `<root>`, `<game>`, `<storeGameId>`), `resolve`, `glob_pattern`, `to_template`.
+  - `resolve.rs` — `suggest`: expand, glob, collapse to folders, drop nested, safety-check, sort.
+  - `mod.rs` — `Manifest` (Tauri state): `refresh(fetcher, force)` (7-day interval, index cache, meta), `lookup` (waits for a running refresh), `status`, `suggest`.
+  - Read-only checks with a real manifest: `MANIFEST_YAML=<file> cargo test real_manifest -- --ignored --nocapture` (also `real_suggestions`, which uses this PC's Steam).
 - `icons.rs` — `IconChoice` (keep/exe/steam/custom/none), `IconSources` (exe + Steam library icon), `apply` (writes `icons/<game-id>.<ext>`), `exe_icon_png` (Windows: `SHDefExtractIconW` + GDI → PNG via `png`), `data_url`, `preview`.
 - `steam/` — read-only access to Steam's files; `Steam::at(root)` works on fixtures, `Steam::locate()` finds the real install (registry `SteamPath` via `RegGetValueW`, fallback `%ProgramFiles(x86)%\Steam`):
   - `vdf.rs` — small text KeyValues parser (quoted/unquoted tokens, escapes, comments, conditionals; case-insensitive keys).
@@ -50,7 +57,7 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
   - `cloud.rs` — `cloud_status(appid)`: accounts with Steam Cloud active for the app (see SPEC).
   - `mod.rs` — `library_icon(appid)`, `protected_folders()` (added to the swap guards), `scan()` (games + icon data URLs).
   - Read-only smoke test against the real install: `cargo test real_steam -- --ignored --nocapture`.
-- `lib.rs` — builds the app (plugins: opener, dialog); runs `swap::recover_all` at startup (if the config loaded) and keeps the reports in `StartupRecovery`, then refreshes moved Steam install folders.
+- `lib.rs` — builds the app (plugins: opener, dialog); runs `swap::recover_all` at startup (if the config loaded) and keeps the reports in `StartupRecovery`, then `games::refresh_paths`; manages `Manifest` and starts the background manifest check in `setup`.
 - `commands.rs` — thin `#[tauri::command]` layer.
 
 ## Tauri commands
@@ -73,12 +80,15 @@ Svelte UI (src/)  ──invoke()──▶  Tauri commands (src-tauri/src/command
 | `preview_icon` | `choice: IconChoice`, `exePath`, `steamAppid?` | `string \| null` | Async. Preview in the editor. |
 | `steam_scan` | — | `SteamScan { root, games: ScannedGame[] }` | Async. Installed Steam games with icon data URLs; `root: null` without Steam. |
 | `steam_cloud_status` | `gameId` | `CloudStatus \| null` | Async. Accounts with Steam Cloud active; `null` for manual games or without Steam. |
+| `manifest_status` | — | `ManifestStatus` | `{ updating, games, checked_at, updated_at, error }`. |
+| `refresh_manifest` | — | `ManifestStatus` | Async. Forced check/download; error kind `manifest`. |
+| `suggest_save_paths` | `query: { name, steam_appid, exe_path }` | `Suggestions { status, matched, items }` | Async. Waits for a running download. Items: `{ template, path, exists, save, config, problem }`. |
 
 ## Data layout
 App dir `%APPDATA%\SaveFilesManager\` (fixed) and storage root (`settings.storage_root`, defaults to the app dir):
 ```
 config.json, config.json.bak                          (app dir)
-manifest\manifest.yaml, manifest.meta.json, index.json (app dir)
+manifest\index.v1.json, manifest.meta.json            (app dir)
 icons\<game-id>.<png|jpg|…>                           (app dir)
 games\<game-id>\                                      (storage root)
   profiles\<profile-id>\data\<save-path-id>\...

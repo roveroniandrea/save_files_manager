@@ -277,6 +277,7 @@ mod tests {
                 protected: vec![],
                 reserved: vec![root],
             },
+            places: Default::default(),
         };
         Fx {
             tmp,

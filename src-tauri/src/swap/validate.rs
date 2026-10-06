@@ -50,8 +50,37 @@ fn norm(path: &Path) -> PathBuf {
     PathBuf::from(s.trim_end_matches('\\'))
 }
 
-fn is_same_or_inside(path: &Path, base: &Path) -> bool {
+pub fn is_same_or_inside(path: &Path, base: &Path) -> bool {
     norm(path).starts_with(norm(base))
+}
+
+/// `guards.protected` plus the game's own folders (Steam install dir, exe dir).
+pub fn game_protected(guards: &Guards, install_dir: Option<&Path>, exe: Option<&Path>) -> Vec<PathBuf> {
+    let mut protected = guards.protected.clone();
+    protected.extend(install_dir.map(Path::to_path_buf));
+    protected.extend(exe.and_then(Path::parent).map(Path::to_path_buf));
+    protected
+}
+
+/// Checks one save folder on its own (not against the game's other folders).
+/// `protected` comes from [`game_protected`]. Returns the reason it is refused.
+pub fn check_folder(path: &Path, protected: &[PathBuf], reserved: &[PathBuf]) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("the path is not absolute".into());
+    }
+    if path.parent().is_none() || norm(path).parent().is_none_or(|p| p.as_os_str().is_empty()) {
+        return Err("a drive root cannot be a save folder".into());
+    }
+    if let Some(p) = protected.iter().find(|p| is_same_or_inside(p, path)) {
+        return Err(format!("it is or contains the protected folder {}", p.display()));
+    }
+    if let Some(r) = reserved
+        .iter()
+        .find(|r| is_same_or_inside(r, path) || is_same_or_inside(path, r))
+    {
+        return Err(format!("it overlaps the app's data folder {}", r.display()));
+    }
+    Ok(())
 }
 
 /// Returns the live save folders of `game` after checking they are safe to swap.
@@ -66,31 +95,16 @@ pub fn live_paths(game: &Game, guards: &Guards) -> AppResult<Vec<LivePath>> {
         })
     };
 
-    let mut protected = guards.protected.clone();
-    if let GameSource::Steam { install_dir, .. } = &game.source {
-        protected.push(install_dir.clone());
-    }
-    if let Some(exe_dir) = game.exe_path.as_deref().and_then(Path::parent) {
-        protected.push(exe_dir.to_path_buf());
-    }
+    let install_dir = match &game.source {
+        GameSource::Steam { install_dir, .. } => Some(install_dir.as_path()),
+        GameSource::Manual => None,
+    };
+    let protected = game_protected(guards, install_dir, game.exe_path.as_deref());
 
     let paths: Vec<&Path> = game.save_paths.iter().map(|p| p.resolved.as_path()).collect();
     for (i, path) in paths.iter().copied().enumerate() {
-        if !path.is_absolute() {
-            return invalid(path, "the path is not absolute");
-        }
-        if path.parent().is_none() || norm(path).parent().is_none_or(|p| p.as_os_str().is_empty()) {
-            return invalid(path, "a drive root cannot be a save folder");
-        }
-        if let Some(p) = protected.iter().find(|p| is_same_or_inside(p, path)) {
-            return invalid(path, &format!("it is or contains the protected folder {}", p.display()));
-        }
-        if let Some(r) = guards
-            .reserved
-            .iter()
-            .find(|r| is_same_or_inside(r, path) || is_same_or_inside(path, r))
-        {
-            return invalid(path, &format!("it overlaps the app's data folder {}", r.display()));
+        if let Err(reason) = check_folder(path, &protected, &guards.reserved) {
+            return invalid(path, &reason);
         }
         if let Some(other) = paths[..i]
             .iter()

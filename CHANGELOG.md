@@ -3,6 +3,9 @@
 All notable changes to this project are documented here.
 
 ## Unreleased
+- Save folder suggestions from the Ludusavi manifest (`src-tauri/src/manifest/`): background download at startup (at most once per 7 days, ETag), compact cached index (`manifest\index.v1.json`), lookup by Steam appid or name/alias, placeholder expansion, glob matching, file entries collapsed to their folder, safety checks. The game editor shows suggestions (automatically for new Steam games, "Find" for others) with Found / Not found / unsafe markers, the database date and "Check for updates".
+- Save folders are now stored with placeholder templates (`<winAppData>/…`, `<base>/…` for Steam games, …). Existing configs are converted at startup; a save folder whose template resolves elsewhere follows it when the old folder is gone and the new one exists (fixes KB-008). The template is shown as a tooltip on the game page.
+- New commands `manifest_status`, `refresh_manifest`, `suggest_save_paths`; new error kind `manifest`. New crates `ureq`, `serde_yaml_ng`, `glob`.
 - Steam integration (`src-tauri/src/steam/`): Steam install located via the registry, all library folders and installed games read from `libraryfolders.vdf` / `appmanifest_*.acf` (redistributables, Proton and runtimes hidden), Steam accounts, Steam library icons, Steam Cloud detection. Own small VDF parser (no new crate).
 - "Add game" now starts with a searchable list of installed Steam games (already added ones disabled) plus "Other game…" for manual games. Steam games show their appid and install folder, default to Steam's icon ("From Steam" icon option), and show a warning banner when Steam Cloud syncs their saves.
 - New commands `steam_scan`, `steam_cloud_status`; `add_game` and `preview_icon` take an optional `steamAppid`. New error kinds `game_already_added`, `steam_not_found`, `steam_app_not_found`.

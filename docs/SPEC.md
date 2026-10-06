@@ -26,11 +26,11 @@ Scope v1: **Windows only, Steam games** (auto-discovered) + manually added games
    - **Edit game**: rename, change icon, change exe, add/remove/relocate save paths, backup limit. Each save path has a stable id, and profile data is stored per save path id: relocating a folder keeps its data, adding one gives the other profiles an empty copy of it (they start fresh for that folder), removing one keeps its stored copies in the profiles (never deleted implicitly). Blocked while an operation is in progress.
    - **Remove game** from app: option to keep or delete stored profile data (default keep → moved to `games/_orphaned/<game-id>_<timestamp>`). The live save folders are never touched. The icon file is deleted.
 2. **Save location discovery**
-   - Download Ludusavi manifest (`https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/master/data/manifest.yaml`), cache in app data, refresh at most once per 7 days using ETag/If-None-Match; manual "Refresh" button. App works offline with cached/no manifest.
-   - Match by `steam.id == appid` (fallback: name). Keep only `files` entries with `when.os` = windows (or unspecified) and tag `save` (optionally `config`, user toggle).
-   - Expand placeholders: `<base>`/`<root>`/`<game>` (install dir), `<storeUserId>` (Steam user id3 from `config/loginusers.vdf`, most recent user; enumerate all `userdata/*` if ambiguous), `<winAppData>`, `<winLocalAppData>`, `<winLocalAppDataLow>`, `<winDocuments>`, `<winPublic>`, `<winProgramData>`, `<winDir>`, `<home>`, `<osUserName>`, `<storeGameId>`.
-   - Resolve globs; collapse file globs to their **containing directory** (swap unit = folder). Show results as **suggestions** the user confirms/edits; the user can always add a path manually.
-   - Paths stored as templates (with placeholders) + resolved absolute path, so they survive user-profile/drive changes.
+   - Download the Ludusavi manifest (`https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/master/data/manifest.yaml`, ~18 MB YAML, gzip on the wire) in a background thread at startup, at most once per 7 days, with `If-None-Match` (ETag); "Check for updates" in the editor forces a check. The YAML is parsed one game at a time into a compact index (`manifest\index.v1.json`, ~2.7 MB: per game the Windows file entries tagged `save`/`config`, Steam ids incl. `id.steamExtra`, aliases); the YAML itself is not kept. A failed download keeps the previous index; the app works offline with a cached or no index.
+   - Match by Steam appid (`steam.id`, `id.steamExtra`), then by name (letters and digits only, case-insensitive; aliases followed). Keep only `files` entries with a `when` for windows (or no `os`) and tag `save` (plus `config` when `settings.include_config`). Steam games skip entries limited to other stores; manual games skip entries limited to Steam.
+   - Expand placeholders: `<base>` (Steam: install dir; manual: the exe's folder), `<root>` (Steam: the Steam install; manual: parent of `<base>`), `<game>` (name of `<base>`), `<storeGameId>` (appid), `<storeUserId>` (wildcard `*`, as Ludusavi does), `<winAppData>`, `<winLocalAppData>`, `<winLocalAppDataLow>`, `<winDocuments>`, `<winPublic>`, `<winProgramData>`, `<winDir>`, `<home>`, `<osUserName>`. Entries with other placeholders (`<xdgData>`, registry, …) are skipped.
+   - Resolve globs (case-insensitive, at most 200 matches per entry); a matched file stands for its **containing folder** (swap unit = folder). A path that does not exist is suggested as "not found" (its parent if it looks like a file, e.g. `save.dat`); globs without matches are dropped. Folders inside another suggestion are dropped. Each suggestion runs the save path safety checks; unsafe ones are shown disabled with the reason. The editor shows them (Steam games: automatically; others: "Find", by name/exe) and the user adds the ones they want; folders can always be added by hand.
+   - Every save path is stored as a template + resolved absolute path. The template is derived from the folder: the most specific known folder containing it becomes a placeholder (`<base>`/`<root>` for Steam games only, then `<winLocalAppDataLow>`, `<winLocalAppData>`, `<winAppData>`, `<winDocuments>`, `<winPublic>`, `<winProgramData>`, `<winDir>`, `<home>`), otherwise the absolute path. At startup, older plain templates are converted, and a save path whose template now resolves elsewhere follows it **only if** the old folder is gone and the new one exists (e.g. Windows user folder renamed, Steam library moved).
 3. **Profiles (per game, independent)**
    - When a game is first configured, the existing live saves become the first profile (user names it, default "Default"), and it's marked **active**.
    - **Create profile**: "Fresh" (no stored data → the game starts a new save) or "Clone from <profile>" (the active profile is cloned from the live folders, others from their stored copy).
@@ -72,7 +72,8 @@ For game G, switching active profile A → B, with save paths P1..Pn (implemente
 %APPDATA%\SaveFilesManager\     # app dir (fixed)
   config.json                 # settings + games list (versioned schema)
   config.json.bak             # previous config.json, kept on every save
-  manifest\manifest.yaml, manifest.meta.json (etag, fetched_at)
+  manifest\index.v1.json      # compact Ludusavi index (the YAML is not kept)
+  manifest\manifest.meta.json # {etag, checked_at, updated_at}
   icons\<game-id>.png
 <storage root>\               # settings.storage_root, defaults to the app dir
   games\<game-id>\
@@ -108,14 +109,14 @@ save_files_manager/
     src/commands.rs            # #[tauri::command] thin layer
     src/config.rs              # load/save/migrate config.json
     src/steam/{mod,vdf,library,users,cloud}.rs
-    src/manifest/{mod,fetch,resolve}.rs  # Ludusavi parse + placeholder expansion
+    src/manifest/{mod,fetch,index,placeholders,resolve}.rs  # Ludusavi download/index + placeholders + suggestions
     src/swap/{mod,copy,journal,backup}.rs
     src/process.rs             # running-game detection (sysinfo)
     src/icons.rs               # exe icon extraction (windows crate → PNG via image)
     src/launch.rs
     src/error.rs               # thiserror AppError, serialized to UI
 ```
-Key crates: `tauri 2`, `tauri-plugin-dialog`, `tauri-plugin-opener`, `serde`/`serde_json`, `serde_yml` (manifest), `keyvalues-parser` (VDF), `winreg`, `sysinfo`, `walkdir`, `filetime`, `glob`, `reqwest` (rustls), `dirs`, `chrono`, `uuid`, `thiserror`, `windows` (icon extraction), `image`. Manifest is large (tens of MB YAML) → parse once in a background task, index only `steam.id → files` into a compact cached JSON to keep startup fast and memory low.
+Key crates: `tauri 2`, `tauri-plugin-dialog`, `tauri-plugin-opener`, `serde`/`serde_json`, `serde_yaml_ng` (manifest), `sysinfo`, `walkdir`, `filetime`, `glob`, `ureq` (rustls, gzip; smaller than `reqwest`, the app needs a single blocking download), `dirs`, `chrono`, `uuid`, `thiserror`, `windows` (icon extraction, registry), `png`. VDF is parsed by a small own parser (`steam/vdf.rs`). Manifest is large (~18 MB YAML) → parse once in a background task, index into a compact cached JSON to keep startup fast and memory low.
 
 ## UI (single window)
 - Left: game list (icon + name + active profile badge), "+ Add game" (Steam scan / manual).

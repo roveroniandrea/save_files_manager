@@ -8,11 +8,14 @@ import type {
   Config,
   GameInput,
   IconChoice,
+  ManifestStatus,
   NewProfileSource,
   ProfileStats,
   RecoveryReport,
   Settings,
   SteamScan,
+  SuggestQuery,
+  Suggestions,
   SwapOptions,
   Uuid,
 } from "./types";
@@ -66,6 +69,14 @@ export const steamScan = () => invoke<SteamScan>("steam_scan");
 
 /** Steam Cloud status of a Steam game; null for other games or without Steam. */
 export const steamCloudStatus = (gameId: Uuid) => invoke<CloudStatus | null>("steam_cloud_status", { gameId });
+
+export const manifestStatus = () => invoke<ManifestStatus>("manifest_status");
+
+/** Checks for a newer Ludusavi manifest now. */
+export const refreshManifest = () => invoke<ManifestStatus>("refresh_manifest");
+
+/** Save folder suggestions from the Ludusavi manifest (waits for a running download). */
+export const suggestSavePaths = (query: SuggestQuery) => invoke<Suggestions>("suggest_save_paths", { query });
 
 export function isAppError(e: unknown): e is AppError {
   return !!e && typeof e === "object" && "kind" in e && "message" in e;

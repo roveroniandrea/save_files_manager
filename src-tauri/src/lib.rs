@@ -3,6 +3,7 @@ pub mod config;
 pub mod error;
 pub mod games;
 pub mod icons;
+pub mod manifest;
 pub mod paths;
 pub mod steam;
 pub mod swap;
@@ -10,6 +11,8 @@ pub mod swap;
 use std::sync::Mutex;
 
 use config::ConfigStore;
+use manifest::Manifest;
+use tauri::Manager;
 use paths::AppPaths;
 use swap::RecoveryReport;
 
@@ -25,19 +28,34 @@ pub fn run() {
         Ok(config) => swap::recover_all(&store, &paths.storage(&config.settings)),
         Err(_) => Vec::new(),
     };
-    // Steam games moved to another library get their new install folder.
-    if let Some(steam) = store.get().ok().and_then(|_| steam::Steam::locate()) {
-        if let Err(e) = games::refresh_steam_install_dirs(&store, &steam.apps()) {
-            eprintln!("could not refresh Steam install folders: {e}");
+    // Moved Steam installs, save path templates, relocated save folders.
+    if store.get().is_ok() {
+        let steam = steam::Steam::locate();
+        let apps = steam.as_ref().map(|s| s.apps()).unwrap_or_default();
+        let places = manifest::placeholders::Places::from_system(steam.map(|s| s.root().to_path_buf()));
+        if let Err(e) = games::refresh_paths(&store, &apps, &places) {
+            eprintln!("could not refresh game folders: {e}");
         }
     }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(Manifest::new(paths.manifest_dir()))
         .manage(paths)
         .manage(store)
         .manage(StartupRecovery(Mutex::new(recovered)))
+        .setup(|app| {
+            // Check for a newer Ludusavi manifest (at most once per 7 days).
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let manifest = handle.state::<Manifest>();
+                if let Err(e) = manifest.refresh(&manifest::fetch::HttpFetcher, false) {
+                    eprintln!("manifest refresh failed: {e}");
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::update_settings,
@@ -56,6 +74,9 @@ pub fn run() {
             commands::preview_icon,
             commands::steam_scan,
             commands::steam_cloud_status,
+            commands::manifest_status,
+            commands::refresh_manifest,
+            commands::suggest_save_paths,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

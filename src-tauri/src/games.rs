@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::config::{clean_name, ConfigStore, Game, GameSource, Profile, SavePath};
 use crate::error::{AppError, AppResult};
 use crate::icons::{self, IconChoice, IconSources};
+use crate::manifest::placeholders::{resolve, to_template, GameContext, Places};
 use crate::steam::SteamApp;
 use crate::swap::{op_lock, validate, SwapContext};
 
@@ -65,10 +66,11 @@ pub fn add_game(
     if input.save_paths.iter().any(|p| p.id.is_some()) {
         return Err(AppError::Other("a new game cannot reference existing save paths".into()));
     }
+    let tctx = GameContext::for_game(&game, &ctx.places);
     game.save_paths = input
         .save_paths
         .into_iter()
-        .map(|p| SavePath::new(p.path.display().to_string(), p.path))
+        .map(|p| SavePath::new(to_template(&p.path, &ctx.places, &tctx), p.path))
         .collect();
     let profile = Profile::new(clean_name(first_profile)?);
     game.active_profile_id = Some(profile.id);
@@ -127,11 +129,13 @@ pub fn update_game(
     check_exe(&input.exe_path)?;
     game.exe_path = input.exe_path;
     game.backup_limit = input.backup_limit;
+    let tctx = GameContext::for_game(&game, &ctx.places);
+    let template = |path: &Path| to_template(path, &ctx.places, &tctx);
     game.save_paths = input
         .save_paths
         .into_iter()
         .map(|p| match p.id {
-            None => Ok(SavePath::new(p.path.display().to_string(), p.path)),
+            None => Ok(SavePath::new(template(&p.path), p.path)),
             Some(id) => {
                 let old = current
                     .save_paths
@@ -143,7 +147,7 @@ pub fn update_game(
                 } else {
                     Ok(SavePath {
                         id,
-                        template: p.path.display().to_string(),
+                        template: template(&p.path),
                         resolved: p.path,
                     })
                 }
@@ -167,29 +171,45 @@ pub fn update_game(
     Ok(game)
 }
 
-/// Updates the install folder of Steam games that Steam now reports elsewhere
-/// (moved to another library). Games Steam no longer lists are left as they
-/// are. Returns the number of games updated.
-pub fn refresh_steam_install_dirs(store: &ConfigStore, apps: &[SteamApp]) -> AppResult<usize> {
+/// Startup maintenance of the games' folders:
+/// - Steam games moved to another library get the new install folder (games
+///   Steam no longer lists are left as they are);
+/// - save paths without a placeholder template (older configs) get one;
+/// - a save path whose template now resolves elsewhere (user folder, Steam
+///   library moved) follows it, but only if the old folder is gone and the
+///   new one exists, so no folder is ever swapped by surprise.
+///
+/// Returns the number of games updated.
+pub fn refresh_paths(store: &ConfigStore, apps: &[SteamApp], places: &Places) -> AppResult<usize> {
     let _lock = op_lock();
-    let moved = |game: &Game| match &game.source {
-        GameSource::Steam { appid, install_dir } => apps
-            .iter()
-            .find(|a| a.appid == *appid && a.install_dir != *install_dir)
-            .map(|a| a.install_dir.clone()),
-        GameSource::Manual => None,
+    let refreshed = |game: &Game| -> Option<Game> {
+        let mut g = game.clone();
+        if let GameSource::Steam { appid, install_dir } = &mut g.source {
+            if let Some(app) = apps.iter().find(|a| a.appid == *appid) {
+                install_dir.clone_from(&app.install_dir);
+            }
+        }
+        let tctx = GameContext::for_game(&g, places);
+        for sp in &mut g.save_paths {
+            if !sp.template.contains('<') {
+                sp.template = to_template(&sp.resolved, places, &tctx);
+            } else if let Some(new) = resolve(&sp.template, places, &tctx) {
+                if new != sp.resolved && !sp.resolved.is_dir() && new.is_dir() {
+                    sp.resolved = new;
+                }
+            }
+        }
+        (g != *game).then_some(g)
     };
-    if !store.get()?.games.iter().any(|g| moved(g).is_some()) {
+    if !store.get()?.games.iter().any(|g| refreshed(g).is_some()) {
         return Ok(0);
     }
     store.update(|c| {
         let mut changed = 0;
         for game in &mut c.games {
-            if let Some(new_dir) = moved(game) {
-                if let GameSource::Steam { install_dir, .. } = &mut game.source {
-                    *install_dir = new_dir;
-                    changed += 1;
-                }
+            if let Some(new) = refreshed(game) {
+                *game = new;
+                changed += 1;
             }
         }
         Ok(changed)
@@ -222,6 +242,7 @@ mod tests {
                 protected: vec![],
                 reserved: vec![root],
             },
+            places: Default::default(),
         };
         let icons = tmp.path().join("icons");
         (tmp, store, ctx, icons)
@@ -369,22 +390,61 @@ mod tests {
     }
 
     #[test]
-    fn refreshes_moved_steam_install_dirs() {
-        let (tmp, store, ctx, icons) = setup();
-        let source = |dir: &str| GameSource::Steam {
+    fn refresh_paths_moves_install_dirs_templates_and_relocated_saves() {
+        let (tmp, store, mut ctx, icons) = setup();
+        ctx.places = crate::manifest::placeholders::test_places(tmp.path());
+        let roaming = ctx.places.app_data.clone().unwrap();
+        let old_install = tmp.path().join("LibA/common/G");
+        let source = |dir: &Path| GameSource::Steam {
             appid: 10,
-            install_dir: tmp.path().join(dir),
+            install_dir: dir.to_path_buf(),
         };
-        add_game(&store, &ctx, &icons, input("G", vec![new_path(tmp.path().join("s"))]), "A", source("old"), None)
-            .unwrap();
-        let app = |dir: &str| SteamApp {
+        let saves = roaming.join("Studio/G");
+        let in_install = old_install.join("saves");
+        std::fs::create_dir_all(&saves).unwrap();
+        let game = add_game(
+            &store,
+            &ctx,
+            &icons,
+            input("G", vec![new_path(saves.clone()), new_path(in_install.clone())]),
+            "A",
+            source(&old_install),
+            None,
+        )
+        .unwrap();
+        assert_eq!(game.save_paths[0].template, "<winAppData>/Studio/G");
+        assert_eq!(game.save_paths[1].template, "<base>/saves");
+
+        let app = |dir: &Path| SteamApp {
             appid: 10,
             name: "G".into(),
-            install_dir: tmp.path().join(dir),
+            install_dir: dir.to_path_buf(),
         };
-        assert_eq!(refresh_steam_install_dirs(&store, &[app("old")]).unwrap(), 0);
-        assert_eq!(refresh_steam_install_dirs(&store, &[]).unwrap(), 0);
-        assert_eq!(refresh_steam_install_dirs(&store, &[app("new")]).unwrap(), 1);
-        assert_eq!(store.get().unwrap().games[0].source, source("new"));
+        let places = &ctx.places;
+        assert_eq!(refresh_paths(&store, &[app(&old_install)], places).unwrap(), 0);
+        assert_eq!(refresh_paths(&store, &[], places).unwrap(), 0);
+
+        // Moved library: the install dir follows; the save folder inside it
+        // only follows once it exists at the new place (the old one is gone).
+        let new_install = tmp.path().join("LibB/common/G");
+        assert_eq!(refresh_paths(&store, &[app(&new_install)], places).unwrap(), 1);
+        let g = store.get().unwrap().games[0].clone();
+        assert_eq!(g.source, source(&new_install));
+        assert_eq!(g.save_paths[1].resolved, in_install);
+        std::fs::create_dir_all(new_install.join("saves")).unwrap();
+        assert_eq!(refresh_paths(&store, &[app(&new_install)], places).unwrap(), 1);
+        let g = store.get().unwrap().games[0].clone();
+        assert_eq!(g.save_paths[1].resolved, new_install.join("saves"));
+        assert_eq!(g.save_paths[0].resolved, saves, "existing folders never move");
+
+        // Old configs: templates were plain paths.
+        store
+            .update(|c| {
+                c.games[0].save_paths[0].template = saves.display().to_string();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(refresh_paths(&store, &[], places).unwrap(), 1);
+        assert_eq!(store.get().unwrap().games[0].save_paths[0].template, "<winAppData>/Studio/G");
     }
 }

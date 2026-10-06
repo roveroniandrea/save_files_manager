@@ -12,6 +12,8 @@ use crate::config::{Config, ConfigStore, GameSource, Settings};
 use crate::error::{AppError, AppResult};
 use crate::games::{self, GameInput};
 use crate::icons::{self, IconChoice, IconSources};
+use crate::manifest::fetch::HttpFetcher;
+use crate::manifest::{Manifest, ManifestStatus, SuggestQuery, Suggestions};
 use crate::paths::AppPaths;
 use crate::steam::{CloudStatus, Steam, SteamScan};
 use crate::swap::manage::{self, NewProfileSource, ProfileStats};
@@ -208,6 +210,34 @@ pub fn preview_icon(
         steam: steam_icon.as_deref(),
     };
     icons::preview(&choice, sources)
+}
+
+#[tauri::command]
+pub fn manifest_status(manifest: State<'_, Manifest>) -> ManifestStatus {
+    manifest.status()
+}
+
+/// Checks for a newer Ludusavi manifest now (ignores the 7-day interval).
+#[tauri::command(async)]
+pub fn refresh_manifest(manifest: State<'_, Manifest>) -> AppResult<ManifestStatus> {
+    manifest.refresh(&HttpFetcher, true)
+}
+
+/// Save folder suggestions from the Ludusavi manifest.
+#[tauri::command(async)]
+pub fn suggest_save_paths(
+    paths: State<'_, AppPaths>,
+    store: State<'_, ConfigStore>,
+    manifest: State<'_, Manifest>,
+    query: SuggestQuery,
+) -> AppResult<Suggestions> {
+    let ctx = SwapContext::new(&paths, &store)?;
+    let include_config = store.get()?.settings.include_config;
+    let install_dir = query
+        .steam_appid
+        .and_then(|appid| Steam::locate()?.app(appid))
+        .map(|app| app.install_dir);
+    Ok(manifest.suggest(&query, install_dir.as_deref(), &ctx.places, &ctx.guards, include_config))
 }
 
 fn steam_library_icon(appid: u32) -> Option<PathBuf> {

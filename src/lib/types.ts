@@ -134,3 +134,38 @@ export interface CloudStatus {
   /** Steam accounts on this PC whose Steam Cloud syncs this game's saves. */
   accounts: CloudAccount[];
 }
+
+/** Ludusavi manifest cache (`manifest::ManifestStatus`). */
+export interface ManifestStatus {
+  updating: boolean;
+  /** Games in the cached index; 0 = not downloaded yet. */
+  games: number;
+  checked_at: Timestamp | null;
+  updated_at: Timestamp | null;
+  /** English detail of the last failed check. */
+  error: string | null;
+}
+
+export interface SuggestQuery {
+  name: string;
+  steam_appid: number | null;
+  exe_path: string | null;
+}
+
+export interface Suggestion {
+  /** Placeholder form, e.g. `<winAppData>/Studio/Game`. */
+  template: string;
+  path: string;
+  exists: boolean;
+  save: boolean;
+  config: boolean;
+  /** English reason why it cannot be a save folder, if so. */
+  problem: string | null;
+}
+
+export interface Suggestions {
+  status: ManifestStatus;
+  /** Manifest entry used; null = the game was not found. */
+  matched: string | null;
+  items: Suggestion[];
+}

@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::config::{ConfigStore, Game};
 use crate::error::{AppError, AppResult};
+use crate::manifest::placeholders::Places;
 use crate::paths::{AppPaths, StorageLayout};
 
 use backup::{BackupMeta, BackupReason};
@@ -44,20 +45,24 @@ pub struct SwapOptions {
 pub struct SwapContext {
     pub layout: StorageLayout,
     pub guards: Guards,
+    /// Known folders, for save path templates.
+    pub places: Places,
 }
 
 impl SwapContext {
     pub fn new(paths: &AppPaths, store: &ConfigStore) -> AppResult<Self> {
         let layout = paths.storage(&store.get()?.settings);
+        let steam = crate::steam::Steam::locate();
         let mut protected = Guards::system_protected();
-        if let Some(steam) = crate::steam::Steam::locate() {
+        if let Some(steam) = &steam {
             protected.extend(steam.protected_folders());
         }
         let guards = Guards {
             protected,
             reserved: vec![paths.app_dir().to_path_buf(), layout.root().to_path_buf()],
         };
-        Ok(SwapContext { layout, guards })
+        let places = Places::from_system(steam.map(|s| s.root().to_path_buf()));
+        Ok(SwapContext { layout, guards, places })
     }
 }
 

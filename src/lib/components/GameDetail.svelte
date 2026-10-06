@@ -227,7 +227,7 @@
   <h2>{t("game.saveFolders")}</h2>
   <ul class="folders">
     {#each game.save_paths as path (path.id)}
-      <li class="path">{path.resolved}</li>
+      <li class="path" title={path.template}>{path.resolved}</li>
     {/each}
   </ul>
 

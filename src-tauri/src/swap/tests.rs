@@ -56,6 +56,7 @@ impl Fx {
                 protected: vec![],
                 reserved: vec![root],
             },
+            places: Default::default(),
         };
         Fx {
             _tmp: tmp,
