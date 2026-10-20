@@ -26,7 +26,7 @@ Only one copy of the app runs at a time; starting it again brings the open windo
 ## Disclaimer
 Save Files Manager moves, copies and deletes files in your game save folders. It takes a backup before every switch, but **keep your own backup of any save you cannot afford to lose**, especially before first use, and check that the save folders you add belong only to that game.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, INCLUDING BUT NOT LIMITED TO LOSS OR CORRUPTION OF SAVE FILES OR OTHER DATA, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. YOU USE THE SOFTWARE AT YOUR OWN RISK.
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU. IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING WILL THE AUTHOR OR ANY COPYRIGHT HOLDER BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OR CORRUPTION OF SAVE FILES OR OTHER DATA). See sections 15 and 16 of the [GNU General Public License](LICENSE) for the full terms.
 
 ## Using it
 1. **Add game** → pick an installed Steam game from the list, or **Other game…** for anything else.
@@ -76,3 +76,10 @@ One-time setup: the repository must be public (the in-app updater downloads `lat
 - `docs/PROGRESS.md` — implementation progress and next steps
 - `KNOWN_BUGS.md` — known bugs and limitations
 - `CHANGELOG.md` — changes
+
+## License
+Copyright © 2026 Andrea Roveroni.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [`LICENSE`](LICENSE) for the full text.
+
+The save location database is the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest) (MIT), downloaded at runtime.

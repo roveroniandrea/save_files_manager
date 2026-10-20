@@ -3,6 +3,7 @@ name = "save-files-manager"
 version = "0.2.0"
 description = "Per-game save profiles manager"
 authors = ["Andrea Roveroni"]
+license = "GPL-3.0-or-later"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

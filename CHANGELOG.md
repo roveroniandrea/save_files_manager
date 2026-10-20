@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 - README: added a disclaimer (no warranty, no liability for lost or corrupted save files or other data; keep your own backups).
+- Licensed under the GNU GPL v3 or later (`LICENSE`; `license` field in `package.json` and `Cargo.toml`, previously an unused `MIT` entry).
 
 ## 0.2.0 — 2026-10-20
 - In-app updates (milestone 12): at startup (Settings → **Check for updates when the app starts**, on by default) and with **Check for updates** in Settings, the app looks for a newer GitHub release. An update dialog shows the new version, its date and release notes; only after **Install and restart** it downloads the update (with progress), verifies its signature, waits for any running switch/restore/profile operation to finish (app-wide operation lock), runs the installer in passive mode and restarts. New optional config field `settings.check_for_updates` (default `true`, no schema change), commands `check_update` / `install_update`, error kind `update`. New crates `tauri-plugin-updater`, `tauri-plugin-process` (+ `@tauri-apps/plugin-process`, permission `process:allow-restart`). Copies installed before the first release containing the updater must be updated by hand once (KB-020).
