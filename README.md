@@ -6,7 +6,9 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 > Status: feature-complete for v1 (English and Italian UI). See `docs/PROGRESS.md`, and `KNOWN_BUGS.md` for known issues and limitations.
 
 ## Demo
-[Watch a short demo](docs/media/demo.mp4) (50 s, no audio).
+https://github.com/user-attachments/assets/d35716ee-ac23-4eb6-b5b1-94e4ef07c185
+
+
 
 ## Features
 - **Steam games** are discovered automatically (all libraries); any other game can be added by hand (exe, name, icon, save folders).
