@@ -5,7 +5,8 @@
 
 use std::path::PathBuf;
 
-use tauri::State;
+use tauri::ipc::Channel;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use crate::config::{Config, ConfigStore, GameSource, Settings};
@@ -18,6 +19,7 @@ use crate::paths::AppPaths;
 use crate::steam::{CloudStatus, Steam, SteamScan};
 use crate::swap::manage::{self, NewProfileSource, ProfileStats};
 use crate::swap::{self, backup::BackupInfo, RecoveryReport, SwapContext, SwapOptions};
+use crate::update::{self, DownloadEvent, PendingUpdate, UpdateInfo};
 use crate::StartupRecovery;
 
 #[tauri::command]
@@ -293,4 +295,21 @@ pub fn steam_cloud_status(store: State<'_, ConfigStore>, game_id: Uuid) -> AppRe
     let config = store.get()?;
     let game = config.game(game_id).ok_or(AppError::GameNotFound(game_id))?;
     Ok(games::steam_appid(game).and_then(|appid| Some(Steam::locate()?.cloud_status(appid))))
+}
+
+/// Checks the release feed for a newer app version (remembered for `install_update`).
+#[tauri::command]
+pub async fn check_update(app: AppHandle, pending: State<'_, PendingUpdate>) -> AppResult<Option<UpdateInfo>> {
+    update::check(&app, &pending).await
+}
+
+/// Downloads and installs the update found by `check_update`. On Windows the
+/// app exits while the installer runs (and restarts it); it never starts while
+/// a swap/restore holds the operation lock.
+#[tauri::command]
+pub async fn install_update(pending: State<'_, PendingUpdate>, on_event: Channel<DownloadEvent>) -> AppResult<()> {
+    update::install(&pending, move |event| {
+        let _ = on_event.send(event);
+    })
+    .await
 }

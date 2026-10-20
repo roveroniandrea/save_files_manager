@@ -3,6 +3,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
+    checkUpdate,
     errorDetail,
     errorMessage,
     manifestStatus,
@@ -18,6 +19,7 @@
   let manifest = $state<ManifestStatus | null>(null);
   let checking = $state(false);
   let version = $state("");
+  let checkingApp = $state(false);
 
   const settings = $derived(app.config!.settings);
   const hasGames = $derived((app.config?.games.length ?? 0) > 0);
@@ -41,6 +43,19 @@
       manifest = await manifestStatus().catch(() => manifest);
     } finally {
       checking = false;
+    }
+  }
+
+  async function checkApp() {
+    checkingApp = true;
+    try {
+      const update = await checkUpdate();
+      if (update) app.update = update;
+      else app.toast("info", t("update.upToDate"));
+    } catch (e) {
+      app.toast("error", errorMessage(e), errorDetail(e));
+    } finally {
+      checkingApp = false;
     }
   }
 
@@ -146,9 +161,25 @@
     {/if}
   </div>
 
-  {#if version}
-    <p class="muted version">{t("settings.version", { version })}</p>
-  {/if}
+  <h2>{t("settings.updates")}</h2>
+  <label class="check">
+    <input
+      type="checkbox"
+      checked={settings.check_for_updates}
+      onchange={(e) => save({ check_for_updates: e.currentTarget.checked })}
+      disabled={app.busy}
+    />
+    {t("settings.checkForUpdates")}
+  </label>
+  <div class="row">
+    <div class="grow">
+      {#if version}<div>{t("settings.version", { version })}</div>{/if}
+      <div class="muted hint">{t("settings.updatesHint")}</div>
+    </div>
+    <button onclick={checkApp} disabled={checkingApp || !!app.update}>
+      {checkingApp ? t("update.checking") : t("settings.checkNow")}
+    </button>
+  </div>
 </section>
 
 <style>
@@ -188,9 +219,5 @@
   .grow {
     flex: 1;
     min-width: 0;
-  }
-  .version {
-    margin-top: 24px;
-    font-size: 12.5px;
   }
 </style>

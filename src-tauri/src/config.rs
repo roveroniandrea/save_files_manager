@@ -51,6 +51,8 @@ pub struct Settings {
     pub theme: Theme,
     /// UI language. `System` follows the OS locale (English if unsupported).
     pub language: Language,
+    /// Check for a newer app version at startup (milestone 12).
+    pub check_for_updates: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +63,7 @@ impl Default for Settings {
             include_config: false,
             theme: Theme::System,
             language: Language::System,
+            check_for_updates: true,
         }
     }
 }
@@ -438,6 +441,7 @@ mod tests {
         assert_eq!(value["version"], 1);
         assert_eq!(value["settings"]["theme"], "system");
         assert_eq!(value["settings"]["language"], "system");
+        assert_eq!(value["settings"]["check_for_updates"], true);
         assert_eq!(value["games"][0]["source"]["kind"], "steam");
         assert_eq!(value["games"][0]["source"]["appid"], 367520);
         assert_eq!(value["games"][1]["source"]["kind"], "manual");
@@ -450,6 +454,7 @@ mod tests {
         fs::write(&path, r#"{"version":1,"games":[{"id":"6f1c2b9e-0d7a-4c1e-9a55-2f0d1b3c4e5f","name":"G","source":{"kind":"manual"}}]}"#).unwrap();
         let config = load(&path).unwrap();
         assert_eq!(config.settings, Settings::default());
+        assert!(config.settings.check_for_updates);
         assert!(config.games[0].profiles.is_empty());
         assert_eq!(config.backup_limit_for(&config.games[0]), DEFAULT_BACKUP_LIMIT);
     }

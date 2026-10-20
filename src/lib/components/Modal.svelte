@@ -6,7 +6,15 @@
     onclose,
     children,
     footer,
-  }: { title: string; onclose: () => void; children: Snippet; footer?: Snippet } = $props();
+    locked = false,
+  }: {
+    title: string;
+    onclose: () => void;
+    children: Snippet;
+    footer?: Snippet;
+    /** Escape does not close the dialog (e.g. while an update installs). */
+    locked?: boolean;
+  } = $props();
 
   let dialog: HTMLDialogElement;
 
@@ -15,8 +23,8 @@
   });
 </script>
 
-<!-- Escape closes the dialog (native `cancel` → `close`). -->
-<dialog bind:this={dialog} {onclose}>
+<!-- Escape closes the dialog (native `cancel` → `close`) unless `locked`. -->
+<dialog bind:this={dialog} {onclose} oncancel={(e) => locked && e.preventDefault()}>
   <h2>{title}</h2>
   <div class="body">{@render children()}</div>
   {#if footer}

@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { takeRecoveryReports } from "$lib/api";
+  import { checkUpdate, takeRecoveryReports } from "$lib/api";
   import GameDetail from "$lib/components/GameDetail.svelte";
   import GameEditor from "$lib/components/GameEditor.svelte";
   import GameIcon from "$lib/components/GameIcon.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import SteamPicker from "$lib/components/SteamPicker.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
+  import UpdateDialog from "$lib/components/UpdateDialog.svelte";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
   import type { ScannedGame } from "$lib/types";
@@ -18,6 +19,14 @@
   onMount(async () => {
     await app.load();
     if (app.loadError) return;
+    // Startup update check (setting); failures (e.g. offline) are only logged.
+    if (app.config?.settings.check_for_updates) {
+      checkUpdate()
+        .then((update) => {
+          if (update) app.update = update;
+        })
+        .catch((e) => console.warn("update check failed", e));
+    }
     for (const report of await takeRecoveryReports().catch(() => [])) {
       const game = report.game_name ?? report.game_id;
       if (report.outcome === "failed") {
@@ -94,6 +103,10 @@
   <GameEditor onclose={() => (adding = null)} />
 {:else if adding?.step === "steam"}
   <GameEditor steam={adding.game} onclose={() => (adding = null)} />
+{/if}
+
+{#if app.update}
+  <UpdateDialog update={app.update} />
 {/if}
 
 <Toasts />

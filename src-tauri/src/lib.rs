@@ -9,6 +9,7 @@ pub mod paths;
 pub mod process;
 pub mod steam;
 pub mod swap;
+pub mod update;
 
 use std::sync::Mutex;
 
@@ -52,6 +53,9 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .manage(update::PendingUpdate::default())
         .manage(Manifest::new(paths.manifest_dir()))
         .manage(paths)
         .manage(store)
@@ -92,6 +96,8 @@ pub fn run() {
             commands::game_running,
             commands::launch_game,
             commands::open_storage_folder,
+            commands::check_update,
+            commands::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

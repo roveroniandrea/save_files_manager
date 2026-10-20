@@ -66,6 +66,9 @@ pub enum AppError {
     /// The Ludusavi manifest could not be downloaded or read.
     #[error("{0}")]
     Manifest(String),
+    /// The app update could not be checked, downloaded or installed.
+    #[error("{0}")]
+    Update(String),
     #[error("{0}")]
     Other(String),
 }
@@ -111,6 +114,7 @@ impl AppError {
             AppError::NoExecutable => "no_executable",
             AppError::LaunchFailed(_) => "launch_failed",
             AppError::Manifest(_) => "manifest",
+            AppError::Update(_) => "update",
             AppError::Other(_) => "other",
         }
     }

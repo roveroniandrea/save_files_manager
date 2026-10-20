@@ -13,6 +13,8 @@ export interface Settings {
   include_config: boolean;
   theme: Theme;
   language: Language;
+  /** Check for a newer app version at startup. */
+  check_for_updates: boolean;
 }
 
 export type GameSource =
@@ -175,3 +177,18 @@ export interface Suggestions {
   /** Similar database entry names when nothing matched ("did you mean"), best first. */
   similar: string[];
 }
+
+/** A newer app version (`update::UpdateInfo`). */
+export interface UpdateInfo {
+  version: string;
+  current_version: string;
+  /** Release notes (changelog section). */
+  notes: string | null;
+  date: Timestamp | null;
+}
+
+/** Progress of `install_update` (`update::DownloadEvent`). */
+export type DownloadEvent =
+  | { event: "progress"; downloaded: number; total: number | null }
+  | { event: "downloaded" }
+  | { event: "installing" };

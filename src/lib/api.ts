@@ -1,11 +1,12 @@
 // Typed wrappers over Tauri commands (src-tauri/src/commands.rs).
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { hasKey, t } from "./i18n";
 import type {
   AppError,
   BackupInfo,
   CloudStatus,
   Config,
+  DownloadEvent,
   GameInput,
   IconChoice,
   ManifestStatus,
@@ -17,6 +18,7 @@ import type {
   SuggestQuery,
   Suggestions,
   SwapOptions,
+  UpdateInfo,
   Uuid,
 } from "./types";
 
@@ -89,6 +91,20 @@ export const launchGame = (gameId: Uuid) => invoke<void>("launch_game", { gameId
 
 /** Opens the folder holding profiles and backups in Explorer. */
 export const openStorageFolder = () => invoke<void>("open_storage_folder");
+
+/** Checks for a newer app version; null = up to date. */
+export const checkUpdate = () => invoke<UpdateInfo | null>("check_update");
+
+/**
+ * Downloads and installs the update found by `checkUpdate` (waits for any
+ * running operation first). On Windows the app exits and the installer
+ * restarts it, so this normally never resolves.
+ */
+export function installUpdate(onEvent: (event: DownloadEvent) => void) {
+  const channel = new Channel<DownloadEvent>();
+  channel.onmessage = onEvent;
+  return invoke<void>("install_update", { onEvent: channel });
+}
 
 export function isAppError(e: unknown): e is AppError {
   return !!e && typeof e === "object" && "kind" in e && "message" in e;

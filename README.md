@@ -14,11 +14,14 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 - **Backups** list per game with one-click restore.
 - **Steam Cloud warning** for games whose saves Steam Cloud syncs (it could overwrite swapped saves).
 - Light/dark theme; English or Italian UI (follows Windows by default, changeable in Settings).
+- **In-app updates**: checks GitHub for a newer version at startup (can be turned off in Settings) and installs it only after you confirm.
 
 ## Install
 Download `Save Files Manager_<version>_x64-setup.exe` from the [latest GitHub release](https://github.com/roveroniandrea/save_files_manager/releases/latest) (or build it yourself, see below) and run it. The installer is not Authenticode-signed, so Windows SmartScreen may warn about an unknown publisher (More info → Run anyway; KB-019). It installs for the current user only (no administrator rights needed) and requires the Microsoft Edge WebView2 runtime, which Windows 10/11 already include (the installer downloads it if missing). Setup asks for its language (English/Italiano) on the first install only; later installs reuse that choice. The app's language is set separately in Settings.
 
 Only one copy of the app runs at a time; starting it again brings the open window to the front.
+
+**Updates**: the app checks for a newer release at startup (Settings → *Check for updates when the app starts*) or when you press **Settings → Check for updates**. It shows the new version and its release notes; **Install and restart** downloads it, verifies its signature, waits until no profile switch or restore is running, installs it and starts the app again. Profiles, saves and settings are kept. Copies installed before the first release with the updater (0.1.0) must be updated once by running the new installer by hand (KB-020).
 
 ## Using it
 1. **Add game** → pick an installed Steam game from the list, or **Other game…** for anything else.

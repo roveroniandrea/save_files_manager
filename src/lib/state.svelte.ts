@@ -1,7 +1,7 @@
 // Global UI state: the config snapshot, selection, busy flag and toasts.
 import { errorDetail, errorMessage, getConfig } from "./api";
 import { applyLanguage } from "./i18n";
-import type { Config, Game, Uuid } from "./types";
+import type { Config, Game, UpdateInfo, Uuid } from "./types";
 
 export interface Toast {
   id: number;
@@ -20,6 +20,8 @@ class AppState {
   toasts = $state<Toast[]>([]);
   /** Fatal load error (config unreadable). */
   loadError = $state<{ summary: string; detail: string } | null>(null);
+  /** A newer app version waiting for the user's confirmation (update dialog). */
+  update = $state<UpdateInfo | null>(null);
   #nextToast = 0;
 
   get selected(): Game | null {
