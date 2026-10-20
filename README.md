@@ -5,6 +5,9 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 
 > Status: feature-complete for v1 (English and Italian UI). See `docs/PROGRESS.md`, and `KNOWN_BUGS.md` for known issues and limitations.
 
+## Demo
+[Watch a short demo](docs/media/demo.mp4) (50 s, no audio).
+
 ## Features
 - **Steam games** are discovered automatically (all libraries); any other game can be added by hand (exe, name, icon, save folders).
 - **Suggested save folders** from the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest) (downloaded at most once a week; the app works offline).

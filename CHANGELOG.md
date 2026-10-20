@@ -3,6 +3,7 @@
 All notable changes to this project are documented here.
 
 ## Unreleased
+- README: added a short demo video (docs/media/demo.mp4, 0.8 MB, re-encoded from the screen capture with ffmpeg).
 - README: added a disclaimer (no warranty, no liability for lost or corrupted save files or other data; keep your own backups).
 - Licensed under the GNU GPL v3 or later (`LICENSE`; `license` field in `package.json` and `Cargo.toml`, previously an unused `MIT` entry).
 
