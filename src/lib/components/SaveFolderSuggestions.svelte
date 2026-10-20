@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { errorDetail, errorMessage, refreshManifest, suggestSavePaths } from "$lib/api";
+  import { errorDetail, errorMessage, refreshManifest, searchManifest, suggestSavePaths } from "$lib/api";
   import { formatDate } from "$lib/format";
   import { t, tn } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
@@ -24,13 +24,25 @@
   let result = $state<Suggestions | null>(null);
   let loading = $state(false);
   let refreshing = $state(false);
+  /** Database entry picked by the user; null = automatic match. */
+  let entry = $state<string | null>(null);
+  let searchOpen = $state(false);
+  let searchText = $state("");
+  let searchResults = $state<string[] | null>(null);
+  let searchBusy = $state(false);
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Ignores replies of older searches. */
+  let searchSeq = 0;
 
   const isChosen = (path: string) => chosen.some((c) => c.toLowerCase() === path.toLowerCase());
 
-  async function search() {
+  /** Suggestions for the automatic match, or for a picked database entry. */
+  async function search(pick: string | null = null) {
     loading = true;
     try {
-      result = await suggestSavePaths(query());
+      result = await suggestSavePaths({ ...query(), entry: pick });
+      entry = pick;
+      if (pick) closeSearch();
     } catch (e) {
       app.toast("error", errorMessage(e), errorDetail(e));
     } finally {
@@ -43,13 +55,49 @@
     try {
       const status = await refreshManifest();
       app.toast("info", tn("suggest.refreshed", status.games));
-      await search();
+      await search(entry);
     } catch (e) {
       app.toast("error", t("suggest.downloadFailed"), errorDetail(e));
       if (result) result.status.error = errorDetail(e);
     } finally {
       refreshing = false;
     }
+  }
+
+  function openSearch() {
+    searchOpen = true;
+    if (!searchText) searchText = query().name.trim();
+    runSearch(0);
+  }
+
+  function closeSearch() {
+    searchOpen = false;
+    clearTimeout(searchTimer);
+    searchSeq++;
+    searchBusy = false;
+  }
+
+  /** Searches the database after a short pause in typing. */
+  function runSearch(delay = 250) {
+    clearTimeout(searchTimer);
+    const text = searchText.trim();
+    const seq = ++searchSeq;
+    if (!text) {
+      searchResults = null;
+      searchBusy = false;
+      return;
+    }
+    searchBusy = true;
+    searchTimer = setTimeout(async () => {
+      try {
+        const names = await searchManifest(text);
+        if (seq === searchSeq) searchResults = names;
+      } catch (e) {
+        if (seq === searchSeq) app.toast("error", errorMessage(e), errorDetail(e));
+      } finally {
+        if (seq === searchSeq) searchBusy = false;
+      }
+    }, delay);
   }
 
   onMount(() => {
@@ -62,7 +110,7 @@
 <div class="box">
   <div class="head">
     <strong>{t("suggest.title")}</strong>
-    <button type="button" class="small" onclick={search} disabled={loading || refreshing}>
+    <button type="button" class="small" onclick={() => search()} disabled={loading || refreshing}>
       {result ? t("suggest.searchAgain") : t("suggest.find")}
     </button>
   </div>
@@ -76,6 +124,14 @@
     {#if status?.error}<p class="muted path">{status.error}</p>{/if}
   {:else if !result.matched}
     <p class="muted">{t("suggest.noMatch")}</p>
+    {#if result.similar.length}
+      <div class="similar">
+        <span class="muted">{t("suggest.didYouMean")}</span>
+        {#each result.similar as name (name)}
+          <button type="button" class="chip" onclick={() => search(name)}>{name}</button>
+        {/each}
+      </div>
+    {/if}
   {:else}
     <p class="muted">{t("suggest.source", { name: result.matched })}</p>
     {#if result.items.length === 0}
@@ -105,6 +161,50 @@
         </li>
       {/each}
     </ul>
+  {/if}
+
+  {#if result && status?.games && !loading}
+    {#if searchOpen}
+      <div class="search">
+        <div class="search-row">
+          <input
+            type="text"
+            aria-label={t("suggest.searchLabel")}
+            placeholder={t("suggest.searchPlaceholder")}
+            bind:value={searchText}
+            oninput={() => runSearch()}
+            onkeydown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault(); // don't submit the editor form
+                if (searchResults?.length) search(searchResults[0]);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation(); // don't close the editor dialog
+                closeSearch();
+              }
+            }}
+          />
+          <button type="button" class="small" onclick={closeSearch}>{t("suggest.closeSearch")}</button>
+        </div>
+        {#if searchBusy}
+          <p class="muted">{t("suggest.searching")}</p>
+        {:else if searchResults && !searchResults.length}
+          <p class="muted">{t("suggest.searchNone")}</p>
+        {:else if searchResults}
+          <ul class="results">
+            {#each searchResults as name (name)}
+              <li>
+                <button type="button" class="result" class:current={name === result.matched} onclick={() => search(name)}>
+                  {name}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {:else}
+      <button type="button" class="link left" onclick={openSearch}>{t("suggest.pickOther")}</button>
+    {/if}
   {/if}
 
   {#if result}
@@ -187,6 +287,53 @@
     color: var(--accent);
     padding: 0;
     font-size: 12.5px;
+  }
+  .link.left {
+    align-self: flex-start;
+  }
+  .similar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    font-size: 12.5px;
+  }
+  .chip {
+    padding: 1px 10px;
+    font-size: 12.5px;
+    border-radius: 999px;
+  }
+  .search {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .search-row {
+    display: flex;
+    gap: 8px;
+  }
+  .search-row input {
+    flex: 1;
+    min-width: 0;
+  }
+  .results {
+    max-height: 200px;
+    overflow-y: auto;
+    gap: 2px;
+  }
+  .result {
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: none;
+    padding: 3px 6px;
+    font-size: 12.5px;
+  }
+  .result:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .result.current {
+    font-weight: 600;
   }
   .link:hover:not(:disabled) {
     background: none;

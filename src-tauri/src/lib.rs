@@ -88,6 +88,7 @@ pub fn run() {
             commands::manifest_status,
             commands::refresh_manifest,
             commands::suggest_save_paths,
+            commands::search_manifest,
             commands::game_running,
             commands::launch_game,
             commands::open_storage_folder,

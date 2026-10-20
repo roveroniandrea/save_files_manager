@@ -152,6 +152,8 @@ export interface SuggestQuery {
   name: string;
   steam_appid: number | null;
   exe_path: string | null;
+  /** Database entry picked by the user; used instead of the automatic match. */
+  entry?: string | null;
 }
 
 export interface Suggestion {
@@ -170,4 +172,6 @@ export interface Suggestions {
   /** Manifest entry used; null = the game was not found. */
   matched: string | null;
   items: Suggestion[];
+  /** Similar database entry names when nothing matched ("did you mean"), best first. */
+  similar: string[];
 }

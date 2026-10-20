@@ -11,6 +11,8 @@ use serde::de::{Deserializer as _, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
+use super::fuzzy::{self, Key};
+
 /// Bump when the index format changes (the file name includes it).
 pub const INDEX_VERSION: u32 = 1;
 
@@ -163,6 +165,8 @@ pub struct Lookup {
     index: Index,
     by_steam: HashMap<u32, usize>,
     by_name: HashMap<String, usize>,
+    /// Fuzzy keys of every game name and alias → game index.
+    keys: Vec<(Key, usize)>,
 }
 
 impl Lookup {
@@ -175,15 +179,18 @@ impl Lookup {
             }
             by_name.entry(normalize_name(&game.name)).or_insert(i);
         }
+        let mut keys: Vec<(Key, usize)> = index.games.iter().enumerate().map(|(i, g)| (Key::new(&g.name), i)).collect();
         for (alias, target) in &index.aliases {
             if let Some(&i) = by_name.get(&normalize_name(target)) {
                 by_name.entry(normalize_name(alias)).or_insert(i);
+                keys.push((Key::new(alias), i));
             }
         }
         Lookup {
             index,
             by_steam,
             by_name,
+            keys,
         }
     }
 
@@ -201,6 +208,34 @@ impl Lookup {
             .and_then(|id| self.by_steam.get(&id))
             .or_else(|| self.by_name.get(&normalize_name(name)).filter(|_| !name.trim().is_empty()))?;
         self.index.games.get(*i)
+    }
+
+    /// The entry with this exact name (as returned by [`Self::similar`] /
+    /// [`Self::search`]), else by normalized name or alias.
+    pub fn entry(&self, name: &str) -> Option<&IndexGame> {
+        self.index
+            .games
+            .iter()
+            .find(|g| g.name == name)
+            .or_else(|| self.find(None, name))
+    }
+
+    fn ranked(&self, text: &str, min: f64, limit: usize) -> Vec<String> {
+        let candidates = self.keys.iter().map(|(k, i)| (k, *i, self.index.games[*i].name.as_str()));
+        fuzzy::rank(text, candidates, min, limit)
+            .into_iter()
+            .map(|i| self.index.games[i].name.clone())
+            .collect()
+    }
+
+    /// Up to `limit` entry names similar to `name` ("did you mean").
+    pub fn similar(&self, name: &str, limit: usize) -> Vec<String> {
+        self.ranked(name, fuzzy::SIMILAR_MIN, limit)
+    }
+
+    /// Entry names matching the user's search text, best first.
+    pub fn search(&self, text: &str, limit: usize) -> Vec<String> {
+        self.ranked(text, fuzzy::SEARCH_MIN, limit)
     }
 }
 
@@ -285,6 +320,21 @@ Odd:
     }
 
     #[test]
+    fn entry_similar_and_search() {
+        let lookup = Lookup::new(build(SAMPLE.as_bytes()).unwrap());
+        assert_eq!(lookup.entry("1979").unwrap().name, "1979");
+        assert_eq!(lookup.entry("nms alias").unwrap().name, "No Man's Sky");
+        assert!(lookup.entry("Unknown").is_none());
+        assert_eq!(lookup.similar("No Mans Skies", 5), ["No Man's Sky"]);
+        // Matched through the alias; reported by the game's name, once.
+        assert_eq!(lookup.similar("NMS Alais", 5), ["No Man's Sky"]);
+        assert!(lookup.similar("Factorio", 5).is_empty());
+        assert_eq!(lookup.search("sky", 20), ["No Man's Sky"]);
+        assert_eq!(lookup.search("197", 20), ["1979"]);
+        assert!(lookup.search("  ", 20).is_empty());
+    }
+
+    #[test]
     fn rejects_garbage() {
         assert!(build(b"[1, 2]").is_err());
         assert!(build(b"Game: {}").is_err());
@@ -308,5 +358,24 @@ Odd:
         );
         let lookup = Lookup::new(index);
         println!("{:#?}", lookup.find(Some(275850), ""));
+    }
+
+    /// Fuzzy matching on a real manifest:
+    /// `MANIFEST_YAML=<file> cargo test real_fuzzy -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn real_fuzzy() {
+        let path = std::env::var("MANIFEST_YAML").expect("set MANIFEST_YAML");
+        let index = build(&std::fs::read(path).unwrap()).unwrap();
+        let start = std::time::Instant::now();
+        let lookup = Lookup::new(index);
+        println!("lookup built in {:?}", start.elapsed());
+        for q in ["Skyrim", "Witcher 3", "No Mans Skies", "Stardew Valey", "Hollow Knigth", "Portal 2", "sky", "doom", "Elden"] {
+            let start = std::time::Instant::now();
+            let similar = lookup.similar(q, 5);
+            let search = lookup.search(q, 20);
+            println!("{q:?} ({:?}): similar {similar:?}
+    search {search:?}", start.elapsed());
+        }
     }
 }

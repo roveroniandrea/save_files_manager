@@ -22,7 +22,7 @@ Only one copy of the app runs at a time; starting it again brings the open windo
 
 ## Using it
 1. **Add game** → pick an installed Steam game from the list, or **Other game…** for anything else.
-2. In the editor, add the game's **save folders**: use the suggestions (for Steam games they appear automatically; for others press **Find**) or **Add folder…**. Check them: the whole folder is swapped.
+2. In the editor, add the game's **save folders**: use the suggestions (for Steam games they appear automatically; for others press **Find**) or **Add folder…**. If the game is not found under its name, pick one of the **Did you mean** names, or search the database yourself (**Not the right game? Search the database**). Check them: the whole folder is swapped.
 3. Name the **first profile**: the saves currently in those folders become this profile.
 4. **New profile** creates another one: *Empty* (the game starts a new save) or a copy of an existing profile.
 5. **Switch to this profile** swaps the folders (a backup is taken first). Or pick the profile next to **Play** and press Play: the app switches, then starts the game.

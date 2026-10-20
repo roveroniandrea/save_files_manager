@@ -3,6 +3,7 @@
 All notable changes to this project are documented here.
 
 ## Unreleased
+- Save location database matching (milestone 10): when a game is not found, the editor offers up to 5 similar database names ("Did you mean…", fuzzy word/edit-distance match, `manifest/fuzzy.rs`), and "Not the right game? Search the database" lets you search all entries and pick the one whose save folders to suggest. New command `search_manifest`; `suggest_save_paths` takes an optional `entry` and returns `similar`. Improves KB-013.
 - Italian translation of the whole UI (`src/lib/i18n/it.ts`) and a **Language** setting (Same as Windows / English / Italiano; "Same as Windows" uses the WebView/OS language and falls back to English). Dates and sizes follow the UI language; `<html lang>` is set accordingly. New optional config field `settings.language` (no schema change).
 - The installer is available in English and Italian (language selector at the start of setup, first install only; see KB-018).
 - Release packaging: NSIS installer (per-user, no admin rights, ~2.3 MB; release exe ~6.5 MB), app icon (source `src-tauri/icons/app-icon.svg`), product metadata, minimum window size.

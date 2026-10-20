@@ -78,6 +78,9 @@ export const refreshManifest = () => invoke<ManifestStatus>("refresh_manifest");
 /** Save folder suggestions from the Ludusavi manifest (waits for a running download). */
 export const suggestSavePaths = (query: SuggestQuery) => invoke<Suggestions>("suggest_save_paths", { query });
 
+/** Database entry names matching a search text, best first (at most 20). */
+export const searchManifest = (text: string) => invoke<string[]>("search_manifest", { text });
+
 /** Whether the game is running now (profile switches are refused while it is). */
 export const gameRunning = (gameId: Uuid) => invoke<boolean>("game_running", { gameId });
 

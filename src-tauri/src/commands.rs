@@ -271,6 +271,12 @@ pub fn suggest_save_paths(
     Ok(manifest.suggest(&query, install_dir.as_deref(), &ctx.places, &ctx.guards, include_config))
 }
 
+/// Database entry names matching the editor's search box, best first.
+#[tauri::command(async)]
+pub fn search_manifest(manifest: State<'_, Manifest>, text: String) -> Vec<String> {
+    manifest.search(&text)
+}
+
 fn steam_library_icon(appid: u32) -> Option<PathBuf> {
     Steam::locate()?.library_icon(appid)
 }

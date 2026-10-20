@@ -7,6 +7,7 @@
 //! app works offline with the cached index or without one.
 
 pub mod fetch;
+pub mod fuzzy;
 pub mod index;
 pub mod placeholders;
 pub mod resolve;
@@ -28,6 +29,10 @@ use placeholders::{GameContext, Places};
 use resolve::{SuggestOptions, Suggestion};
 
 pub const REFRESH_DAYS: i64 = 7;
+/// "Did you mean" names shown when the game is not found.
+pub const SIMILAR_LIMIT: usize = 5;
+/// Results of the manual database search.
+pub const SEARCH_LIMIT: usize = 20;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Meta {
@@ -58,6 +63,10 @@ pub struct SuggestQuery {
     pub steam_appid: Option<u32>,
     #[serde(default)]
     pub exe_path: Option<PathBuf>,
+    /// Database entry picked by the user ("did you mean" / search); used
+    /// instead of matching by Steam appid or name.
+    #[serde(default)]
+    pub entry: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +75,8 @@ pub struct Suggestions {
     /// Name of the manifest entry used, if one matched.
     pub matched: Option<String>,
     pub items: Vec<Suggestion>,
+    /// Similar entry names when nothing matched ("did you mean"), best first.
+    pub similar: Vec<String>,
 }
 
 #[derive(Default)]
@@ -180,7 +191,15 @@ impl Manifest {
         include_config: bool,
     ) -> Suggestions {
         let lookup = self.lookup();
-        let game = lookup.as_ref().and_then(|l| l.find(query.steam_appid, &query.name));
+        let entry = query.entry.as_deref().filter(|e| !e.trim().is_empty());
+        let game = lookup.as_ref().and_then(|l| match entry {
+            Some(entry) => l.entry(entry),
+            None => l.find(query.steam_appid, &query.name),
+        });
+        let similar = match (&lookup, game) {
+            (Some(l), None) => l.similar(entry.unwrap_or(&query.name), SIMILAR_LIMIT),
+            _ => Vec::new(),
+        };
         let items = game.map_or_else(Vec::new, |game| {
             let (expand, template) = match (query.steam_appid, install_dir) {
                 (Some(appid), Some(dir)) => {
@@ -207,7 +226,13 @@ impl Manifest {
             status: self.status(),
             matched: game.map(|g| g.name.clone()),
             items,
+            similar,
         }
+    }
+
+    /// Database entry names matching `text` (waits for a running refresh).
+    pub fn search(&self, text: &str) -> Vec<String> {
+        self.lookup().map_or_else(Vec::new, |l| l.search(text, SEARCH_LIMIT))
     }
 
     /// Checks the server for a newer manifest. Without `force`, does nothing
@@ -350,6 +375,7 @@ mod tests {
             name: "game".into(),
             steam_appid: None,
             exe_path: None,
+            entry: None,
         };
         let none = m.suggest(&query, None, &places, &Guards::default(), false);
         assert_eq!((none.matched, none.items.len(), none.status.games), (None, 0, 0));
@@ -360,6 +386,45 @@ mod tests {
         assert_eq!(got.items.len(), 1);
         assert_eq!(got.items[0].template, "<winAppData>/G");
         assert!(!got.items[0].exists);
+    }
+
+    #[test]
+    fn did_you_mean_and_explicit_entry() {
+        let tmp = tempdir().unwrap();
+        let m = Manifest::new(tmp.path().join("manifest"));
+        let places = placeholders::test_places(tmp.path());
+        let yaml = format!("{YAML}Other:
+  files:
+    <winDocuments>/O:
+      tags: [save]
+");
+        assert!(m.search("game").is_empty());
+        m.refresh(&Fake::new(vec![updated(&yaml, "e")]), false).unwrap();
+
+        let mut query = SuggestQuery {
+            name: "Gaem".into(),
+            steam_appid: None,
+            exe_path: None,
+            entry: None,
+        };
+        let got = m.suggest(&query, None, &places, &Guards::default(), false);
+        assert_eq!((got.matched, got.items.len()), (None, 0));
+        assert_eq!(got.similar, ["Game"]);
+
+        // A picked entry wins over the name (and the Steam appid).
+        query.entry = Some("Other".into());
+        query.steam_appid = Some(5);
+        let got = m.suggest(&query, None, &places, &Guards::default(), false);
+        assert_eq!(got.matched.as_deref(), Some("Other"));
+        assert_eq!(got.items[0].template, "<winDocuments>/O");
+        assert!(got.similar.is_empty());
+
+        // An entry gone from the database: nothing matched, similar names offered.
+        query.entry = Some("Othr".into());
+        let got = m.suggest(&query, None, &places, &Guards::default(), false);
+        assert_eq!((got.matched, got.similar), (None, vec!["Other".to_string()]));
+
+        assert_eq!(m.search("oth"), ["Other"]);
     }
 
     /// Read-only: real manifest + this PC's Steam and folders.
@@ -380,7 +445,7 @@ mod tests {
         };
         guards.protected.extend(steam.protected_folders());
         for app in steam.apps() {
-            let q = SuggestQuery { name: app.name.clone(), steam_appid: Some(app.appid), exe_path: None };
+            let q = SuggestQuery { name: app.name.clone(), steam_appid: Some(app.appid), exe_path: None, entry: None };
             let s = m.suggest(&q, Some(&app.install_dir), &places, &guards, true);
             println!("{} -> {:?}", app.name, s.matched);
             for i in s.items {
