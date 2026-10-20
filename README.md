@@ -23,6 +23,11 @@ Only one copy of the app runs at a time; starting it again brings the open windo
 
 **Updates**: the app checks for a newer release at startup (Settings → *Check for updates when the app starts*) or when you press **Settings → Check for updates**. It shows the new version and its release notes; **Install and restart** downloads it, verifies its signature, waits until no profile switch or restore is running, installs it and starts the app again. Profiles, saves and settings are kept. Copies installed before the first release with the updater (0.1.0) must be updated once by running the new installer by hand (KB-020).
 
+## Disclaimer
+Save Files Manager moves, copies and deletes files in your game save folders. It takes a backup before every switch, but **keep your own backup of any save you cannot afford to lose**, especially before first use, and check that the save folders you add belong only to that game.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, INCLUDING BUT NOT LIMITED TO LOSS OR CORRUPTION OF SAVE FILES OR OTHER DATA, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. YOU USE THE SOFTWARE AT YOUR OWN RISK.
+
 ## Using it
 1. **Add game** → pick an installed Steam game from the list, or **Other game…** for anything else.
 2. In the editor, add the game's **save folders**: use the suggestions (for Steam games they appear automatically; for others press **Find**) or **Add folder…**. If the game is not found under its name, pick one of the **Did you mean** names, or search the database yourself (**Not the right game? Search the database**). Check them: the whole folder is swapped.
