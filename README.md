@@ -16,7 +16,7 @@ Pick a game, pick a profile ("Andrea", "Silvia", …) and the app swaps the game
 - Light/dark theme; English or Italian UI (follows Windows by default, changeable in Settings).
 
 ## Install
-Run `Save Files Manager_<version>_x64-setup.exe` (built with `npm run tauri build`, see below). It installs for the current user only (no administrator rights needed) and requires the Microsoft Edge WebView2 runtime, which Windows 10/11 already include (the installer downloads it if missing). Setup asks for its language (English/Italiano) on the first install only; later installs reuse that choice. The app's language is set separately in Settings.
+Download `Save Files Manager_<version>_x64-setup.exe` from the [latest GitHub release](https://github.com/roveroniandrea/save_files_manager/releases/latest) (or build it yourself, see below) and run it. The installer is not Authenticode-signed, so Windows SmartScreen may warn about an unknown publisher (More info → Run anyway; KB-019). It installs for the current user only (no administrator rights needed) and requires the Microsoft Edge WebView2 runtime, which Windows 10/11 already include (the installer downloads it if missing). Setup asks for its language (English/Italiano) on the first install only; later installs reuse that choice. The app's language is set separately in Settings.
 
 Only one copy of the app runs at a time; starting it again brings the open window to the front.
 
@@ -42,13 +42,25 @@ Prerequisites: [Node.js](https://nodejs.org/) 20+, [Rust](https://www.rust-lang.
 ```sh
 npm install
 npm run tauri dev      # run in development (uses the real %APPDATA%\SaveFilesManager)
-npm run tauri build    # release build + NSIS installer in src-tauri/target/release/bundle/nsis/
+npm run build:unsigned # release build + NSIS installer in src-tauri/target/release/bundle/nsis/ (no updater signature)
+npm run tauri build    # same, plus signed updater artifacts: needs TAURI_SIGNING_PRIVATE_KEY(_PASSWORD), see Releases
 npm run check          # type check the frontend
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 ```
 
 The app icon is generated from `src-tauri/icons/app-icon.svg`: `npx tauri icon src-tauri/icons/app-icon.svg` (then delete the generated `android/` and `ios/` folders).
+
+CI (`.github/workflows/ci.yml`) runs `npm run check`, clippy (warnings are errors) and the Rust tests on a Windows runner for every push to `main` and every pull request.
+
+## Releases
+Releases are built and published by GitHub Actions (`.github/workflows/release.yml`) when a `vX.Y.Z` tag is pushed:
+
+1. Add the changes under `## Unreleased` in `CHANGELOG.md` and commit them on `main`.
+2. `npm run release X.Y.Z` — checks the tree is clean and on `main`, sets the version in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`, moves the `Unreleased` entries into `## X.Y.Z — <date>`, commits `Release vX.Y.Z` and creates the tag `vX.Y.Z`. Nothing is pushed (undo with `git tag -d vX.Y.Z && git reset --hard HEAD~1`).
+3. `git push origin main && git push origin vX.Y.Z` — the workflow checks that the tag matches every version file, runs the tests, builds the NSIS installer and **publishes** the GitHub Release right away (no draft) with the installer, the signed updater bundle (`.sig`) and `latest.json`; the release notes are that version's changelog section.
+
+One-time setup: the repository must be public (the in-app updater downloads `latest.json` and the installer without authentication), and the updater signing key must be stored as repository secrets (Settings → Secrets and variables → Actions): `TAURI_SIGNING_PRIVATE_KEY` (contents of `%USERPROFILE%\.tauri\save_files_manager.key`) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The matching public key is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). Keep a backup of the private key and its password: without them, installed copies can no longer verify (and install) updates. To build a signed installer locally, set the same two variables in the shell before `npm run tauri build`.
 
 ## Documentation
 - `docs/SPEC.md` — functional specification

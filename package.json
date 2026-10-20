@@ -10,7 +10,9 @@
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:unsigned": "tauri build --config src-tauri/tauri.unsigned.conf.json",
+    "release": "node scripts/release.mjs"
   },
   "license": "MIT",
   "dependencies": {
